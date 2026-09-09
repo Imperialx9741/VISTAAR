@@ -79,6 +79,20 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
+      - name: Provide CI-only Firebase config stub
+        # apps/mobile/lib/firebase_options.dart is real FlutterFire CLI
+        # output, gitignored on purpose (never committed — see
+        # apps/mobile/.gitignore, ADR-0052, README.md §13). On a clean
+        # CI checkout that file doesn't exist, so lib/main.dart's own
+        # `import 'firebase_options.dart'` can't resolve and `flutter
+        # analyze` fails. This copies in a committed, structurally
+        # equivalent stub with obviously fake values (apps/mobile/lib/
+        # firebase_options.example.dart) — sufficient for static
+        # analysis and `flutter test` (neither ever calls Firebase over
+        # the network or builds a real artifact); no real Firebase
+        # project access or GitHub secret is needed for this step.
+        run: cp lib/firebase_options.example.dart lib/firebase_options.dart
+
       - name: Run Static Analysis
         run: flutter analyze
 
