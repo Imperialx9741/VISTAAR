@@ -260,8 +260,7 @@ def _force_due_now(event_id: uuid.UUID) -> None:
     try:
         db.execute(
             text(
-                "UPDATE shared.outbox_events SET next_attempt_at = :now "
-                "WHERE id = :id"
+                "UPDATE shared.outbox_events SET next_attempt_at = :now WHERE id = :id"
             ),
             {"now": datetime.now(UTC), "id": str(event_id)},
         )
@@ -290,9 +289,7 @@ async def _consume_until(
         try:
             async with asyncio.timeout(timeout):
                 async for message in consumer:
-                    decoded: dict[str, Any] = json.loads(
-                        message.value.decode("utf-8")
-                    )
+                    decoded: dict[str, Any] = json.loads(message.value.decode("utf-8"))
                     if decoded.get("event_id") == str(event_id):
                         return decoded
         except TimeoutError:
@@ -347,6 +344,7 @@ async def test_transient_failure_is_retried_then_succeeds() -> None:
         pytest.skip(
             f"Kafka broker at {settings.KAFKA_BOOTSTRAP_SERVERS} unreachable: {exc}"
         )
+    assert publisher._producer is not None  # start() succeeded above
 
     real_send = publisher._producer.send_and_wait
     attempts = 0
@@ -406,6 +404,7 @@ async def test_failed_event_is_not_retried_before_its_next_attempt_at() -> None:
         pytest.skip(
             f"Kafka broker at {settings.KAFKA_BOOTSTRAP_SERVERS} unreachable: {exc}"
         )
+    assert publisher._producer is not None  # start() succeeded above
 
     async def _always_fail(topic: str, key: bytes, value: bytes) -> Any:
         raise RuntimeError("simulated failure")
@@ -491,6 +490,7 @@ async def test_dlq_publish_failure_leaves_the_row_pending_not_discarded() -> Non
         pytest.skip(
             f"Kafka broker at {settings.KAFKA_BOOTSTRAP_SERVERS} unreachable: {exc}"
         )
+    assert publisher._producer is not None  # start() succeeded above
 
     async def _always_fail(topic: str, key: bytes, value: bytes) -> Any:
         raise RuntimeError("simulated DLQ publish failure")

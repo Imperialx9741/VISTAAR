@@ -1134,9 +1134,7 @@ def test_ride_completion_consumes_reserved_promotion_and_writes_usage(
         assert float(usage_row.discount_amount) == pytest.approx(discount_applied)
 
         remaining = db.execute(
-            text(
-                "SELECT remaining_uses FROM promotion.entitlements WHERE id = :id"
-            ),
+            text("SELECT remaining_uses FROM promotion.entitlements WHERE id = :id"),
             {"id": reservation_row.entitlement_id},
         ).scalar()
         assert remaining == 2  # decremented at reserve time only, unchanged here
@@ -1150,9 +1148,9 @@ def test_ride_completion_consumes_reserved_promotion_and_writes_usage(
         ).fetchone()
         assert outbox_row is not None
         assert outbox_row.payload["data"]["ride_id"] == ride_id
-        assert float(
-            outbox_row.payload["data"]["discount_amount"]
-        ) == pytest.approx(discount_applied)
+        assert float(outbox_row.payload["data"]["discount_amount"]) == pytest.approx(
+            discount_applied
+        )
     finally:
         db.close()
 
@@ -1226,9 +1224,7 @@ def test_ride_completion_with_no_promotion_reservation_is_a_silent_no_op(
     db = SessionLocal()
     try:
         reservation_count = db.execute(
-            text(
-                "SELECT COUNT(*) FROM promotion.reservations WHERE ride_id = :id"
-            ),
+            text("SELECT COUNT(*) FROM promotion.reservations WHERE ride_id = :id"),
             {"id": ride_id},
         ).scalar()
         assert reservation_count == 0
@@ -1383,9 +1379,7 @@ def test_driver_cancelling_a_ride_restores_its_reserved_promotion(
         assert reservation_after.status == "RESTORED"
 
         remaining = db.execute(
-            text(
-                "SELECT remaining_uses FROM promotion.entitlements WHERE id = :id"
-            ),
+            text("SELECT remaining_uses FROM promotion.entitlements WHERE id = :id"),
             {"id": reservation_before.entitlement_id},
         ).scalar()
         assert remaining == 3  # given back
@@ -1438,8 +1432,8 @@ def test_refresh_otp_also_sends_it_by_sms_to_the_linked_contact(
     api_client: TestClient, sms: CapturingSmsProvider
 ) -> None:
     admin_headers = _login_admin(api_client, sms)
-    ride_id, customer_headers, linked_contact_phone = (
-        _arrived_ride_with_linked_contact(api_client, sms, admin_headers)
+    ride_id, customer_headers, linked_contact_phone = _arrived_ride_with_linked_contact(
+        api_client, sms, admin_headers
     )
 
     response = api_client.post(

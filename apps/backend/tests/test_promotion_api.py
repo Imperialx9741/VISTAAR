@@ -619,9 +619,7 @@ def test_concurrent_restores_of_the_same_reservation_never_double_restore(
         db.close()
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(
-            pool.map(lambda _: _restore(reservation.id), range(2))
-        )
+        results = list(pool.map(lambda _: _restore(reservation.id), range(2)))
 
     assert results.count("OK") == 1
     assert results.count("ALREADY_RESOLVED") == 1
@@ -698,9 +696,7 @@ def test_concurrent_consumes_of_the_same_reservation_never_double_consume(
         db.close()
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(
-            pool.map(lambda _: _consume(reservation.id), range(2))
-        )
+        results = list(pool.map(lambda _: _consume(reservation.id), range(2)))
 
     assert results.count("OK") == 1
     assert results.count("ALREADY_RESOLVED") == 1
@@ -708,9 +704,7 @@ def test_concurrent_consumes_of_the_same_reservation_never_double_consume(
     db = SessionLocal()
     try:
         usage_count = db.execute(
-            text(
-                "SELECT COUNT(*) FROM promotion.usage WHERE entitlement_id = :id"
-            ),
+            text("SELECT COUNT(*) FROM promotion.usage WHERE entitlement_id = :id"),
             {"id": str(entitlement_id)},
         ).scalar()
         assert usage_count == 1

@@ -293,9 +293,7 @@ def validate_linked_contact(
     try:
         normalized_phone = PhoneNumber.parse(phone)
     except InvalidPhoneNumberError as exc:
-        raise InvalidLinkedContactError(
-            f"linked_contact.phone: {exc.message}"
-        ) from exc
+        raise InvalidLinkedContactError(f"linked_contact.phone: {exc.message}") from exc
     return stripped_name, normalized_phone.value
 
 

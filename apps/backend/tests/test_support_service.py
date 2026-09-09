@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 
 import pytest
 
@@ -66,8 +67,7 @@ class FakeSupportCaseRepository:
             (
                 c
                 for c in self.by_id.values()
-                if c.user_id == user_id
-                and (status is None or c.status.value == status)
+                if c.user_id == user_id and (status is None or c.status.value == status)
             ),
             key=lambda c: c.created_at,
             reverse=True,
@@ -130,7 +130,7 @@ def service(
 
 
 def _create_case(service: SupportService, **overrides: object) -> SupportCase:
-    defaults: dict[str, object] = {
+    defaults: dict[str, Any] = {
         "user_id": USER_ID,
         "ride_id": RIDE_ID,
         "category": "PAYMENT",

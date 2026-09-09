@@ -261,9 +261,7 @@ async def retry_failed_notifications(*, db: DbSession, now: datetime) -> int:
                 # this codebase).
                 continue
             recipient = account_row.phone
-        await notification_service.retry_delivery(
-            row.id, recipient=recipient, now=now
-        )
+        await notification_service.retry_delivery(row.id, recipient=recipient, now=now)
         retried += 1
     db.commit()
     return retried

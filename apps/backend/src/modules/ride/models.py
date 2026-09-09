@@ -103,12 +103,8 @@ class RideORM(Base):
     lock_in_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
-    linked_contact_name: Mapped[str | None] = mapped_column(
-        String(200), nullable=True
-    )
-    linked_contact_phone: Mapped[str | None] = mapped_column(
-        String(20), nullable=True
-    )
+    linked_contact_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    linked_contact_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
     requested_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )

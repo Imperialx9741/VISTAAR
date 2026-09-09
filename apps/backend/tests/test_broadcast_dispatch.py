@@ -62,6 +62,9 @@ class FakeDeliveryRepository:
                 return
         raise LookupError(f"Delivery {delivery.id} not found")
 
+    def get_by_id_for_update(self, delivery_id: uuid.UUID) -> Delivery | None:
+        return next((d for d in self.rows if d.id == delivery_id), None)
+
     def list_for_user(
         self, user_id: uuid.UUID, *, offset: int, limit: int
     ) -> tuple[list[Delivery], int]:

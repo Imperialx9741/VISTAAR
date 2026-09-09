@@ -116,17 +116,13 @@ def test_create_order_raises_on_gateway_error_response() -> None:
         lambda _: httpx.Response(401, json={"error": {"description": "bad key"}})
     )
     with pytest.raises(PaymentGatewayError):
-        asyncio.run(
-            gateway.create_order(driver_id=uuid.uuid4(), amount=Decimal("500"))
-        )
+        asyncio.run(gateway.create_order(driver_id=uuid.uuid4(), amount=Decimal("500")))
 
 
 def test_create_order_raises_when_response_has_no_id() -> None:
     gateway = _gateway(lambda _: httpx.Response(200, json={"status": "created"}))
     with pytest.raises(PaymentGatewayError):
-        asyncio.run(
-            gateway.create_order(driver_id=uuid.uuid4(), amount=Decimal("500"))
-        )
+        asyncio.run(gateway.create_order(driver_id=uuid.uuid4(), amount=Decimal("500")))
 
 
 def test_verify_payment_returns_the_verified_amount_when_captured() -> None:

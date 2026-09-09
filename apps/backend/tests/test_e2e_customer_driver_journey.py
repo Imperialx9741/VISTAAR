@@ -415,8 +415,7 @@ def test_full_customer_books_driver_accepts_ride_completes_journey(
     try:
         row = db.execute(
             text(
-                "SELECT status, completed_at, closed_at "
-                "FROM ride.rides WHERE id = :id"
+                "SELECT status, completed_at, closed_at FROM ride.rides WHERE id = :id"
             ),
             {"id": ride_id},
         ).fetchone()

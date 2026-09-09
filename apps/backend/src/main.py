@@ -7,7 +7,7 @@ import sentry_sdk
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from prometheus_fastapi_instrumentator import Instrumentator
 from redis.asyncio import Redis
 from sentry_sdk.types import Event, Hint
@@ -213,7 +213,9 @@ app = FastAPI(
 # error-code vocabulary (api-contracts.md §49) already recognizes.
 _HTTP_EXCEPTION_ENVELOPE_MESSAGES: dict[str, str] = {
     "AUTH_REQUIRED": "Authentication is required for this endpoint.",
-    "AUTH_INVALID": "The access token is invalid, expired, or was not issued for this purpose.",
+    "AUTH_INVALID": (
+        "The access token is invalid, expired, or was not issued for this purpose."
+    ),
     "ACCOUNT_SUSPENDED": "This account is suspended.",
     "FORBIDDEN": "You do not have permission to perform this action.",
     "RATE_LIMITED": "Too many requests. Please wait and try again.",
@@ -223,7 +225,7 @@ _HTTP_EXCEPTION_ENVELOPE_MESSAGES: dict[str, str] = {
 @app.exception_handler(HTTPException)
 async def _enveloped_http_exception_handler(
     request: Request, exc: HTTPException
-) -> JSONResponse:
+) -> Response:
     message = (
         _HTTP_EXCEPTION_ENVELOPE_MESSAGES.get(exc.detail)
         if isinstance(exc.detail, str)

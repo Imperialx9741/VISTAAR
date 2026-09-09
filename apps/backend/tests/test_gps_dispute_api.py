@@ -531,9 +531,7 @@ def test_list_gps_disputes_for_unrelated_account_returns_not_found(
 def test_list_gps_disputes_unauthenticated_is_rejected(
     api_client: TestClient,
 ) -> None:
-    response = api_client.get(
-        f"/api/v1/rides/{uuid.uuid4()}/gps-disputes"
-    )
+    response = api_client.get(f"/api/v1/rides/{uuid.uuid4()}/gps-disputes")
     assert response.status_code == 401
 
 

@@ -557,9 +557,7 @@ def test_settle_penalties_for_completed_ride_settles_and_returns_total(
 def test_settle_penalties_for_completed_ride_is_zero_for_a_ride_with_none_attached(
     service: PenaltyService,
 ) -> None:
-    total = service.settle_penalties_for_completed_ride(
-        ride_id=uuid.uuid4(), now=NOW
-    )
+    total = service.settle_penalties_for_completed_ride(ride_id=uuid.uuid4(), now=NOW)
     assert total == Decimal("0")
 
 
@@ -579,8 +577,6 @@ def test_a_settled_penalty_never_double_settles_on_a_second_call(
     first_total = service.settle_penalties_for_completed_ride(ride_id=ride_id, now=NOW)
     assert first_total == Decimal("15")  # sanity check: a real settlement happened
 
-    second_total = service.settle_penalties_for_completed_ride(
-        ride_id=ride_id, now=NOW
-    )
+    second_total = service.settle_penalties_for_completed_ride(ride_id=ride_id, now=NOW)
 
     assert second_total == Decimal("0")

@@ -318,8 +318,6 @@ def test_list_documents_unauthenticated_is_rejected(
     headers = _new_driver_with_profile(api_client, sms)
     vehicle_id = _add_vehicle(api_client, headers)
 
-    response = api_client.get(
-        f"/api/v1/drivers/me/vehicles/{vehicle_id}/documents"
-    )
+    response = api_client.get(f"/api/v1/drivers/me/vehicles/{vehicle_id}/documents")
 
     assert response.status_code == 401

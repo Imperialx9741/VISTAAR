@@ -306,8 +306,7 @@ class NotificationService:
                     any_sent = True
                 except Exception as exc:  # noqa: BLE001 - best-effort, see class docstring
                     logger.error(
-                        "Notification PUSH retry failed (delivery_id=%s "
-                        "device=%s): %s",
+                        "Notification PUSH retry failed (delivery_id=%s device=%s): %s",
                         delivery_id,
                         device.id,
                         exc,

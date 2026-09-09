@@ -266,9 +266,7 @@ def test_cancelling_a_scheduled_ride_less_than_3_hours_before_charges_30(
     db = SessionLocal()
     try:
         penalty_type = db.execute(
-            text(
-                "SELECT penalty_type FROM penalty.penalties WHERE id = :id"
-            ),
+            text("SELECT penalty_type FROM penalty.penalties WHERE id = :id"),
             {"id": charge["penalty_id"]},
         ).scalar_one()
         assert penalty_type == "SCHEDULED_RIDE_LATE_CANCELLATION"
@@ -297,10 +295,7 @@ def test_cancelling_a_scheduled_ride_refunds_no_platform_fee(
     db = SessionLocal()
     try:
         row = db.execute(
-            text(
-                "SELECT COUNT(*) FROM wallet.transactions "
-                "WHERE ride_id = :ride_id"
-            ),
+            text("SELECT COUNT(*) FROM wallet.transactions WHERE ride_id = :ride_id"),
             {"ride_id": ride["ride_id"]},
         ).scalar_one()
         assert row == 0

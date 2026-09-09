@@ -306,8 +306,7 @@ async def handle_event(envelope: dict[str, Any], *, db: DbSession) -> None:
     event_id = envelope["event_id"]
     if _already_processed(db, event_id=event_id):
         logger.info(
-            "Event %s (type=%s) already processed by %s — skipping "
-            "(redelivery).",
+            "Event %s (type=%s) already processed by %s — skipping (redelivery).",
             event_id,
             event_type,
             _CONSUMER_NAME,

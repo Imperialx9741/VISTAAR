@@ -539,8 +539,7 @@ def _delivery_status_and_retry_count(delivery_id: uuid.UUID) -> tuple[str, int]:
     try:
         row = db.execute(
             text(
-                "SELECT status, retry_count FROM notification.deliveries "
-                "WHERE id = :id"
+                "SELECT status, retry_count FROM notification.deliveries WHERE id = :id"
             ),
             {"id": str(delivery_id)},
         ).one()

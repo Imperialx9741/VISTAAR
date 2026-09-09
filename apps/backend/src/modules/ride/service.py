@@ -195,9 +195,7 @@ class RideService:
         cancel_ride()'s own lock already documents."""
         ride = self._rides.get_by_id_for_update(ride_id)
         if ride is None or ride.status is not RideStatus.SCHEDULED:
-            raise ScheduledRideNotFoundError(
-                "Ride not found or no longer SCHEDULED."
-            )
+            raise ScheduledRideNotFoundError("Ride not found or no longer SCHEDULED.")
 
         previous_status = ride.status
         ride.status = RideStatus.SEARCHING
