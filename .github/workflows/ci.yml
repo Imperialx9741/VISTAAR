@@ -182,7 +182,23 @@ jobs:
         run: docker build -t vistaar-backend:ci apps/backend
 
       - name: Trivy Vulnerability Scan
-        uses: aquasecurity/trivy-action@v0.28.0
+        # SHA-pinned, not tag-pinned (security.md §74/§75 hardening,
+        # 2026-09-09) — v0.28.0 broke when its own internal
+        # aquasecurity/setup-trivy@v0.2.1 dependency reference stopped
+        # resolving, and the pre-0.35.0 trivy-action line is affected
+        # by the March 2026 Trivy ecosystem supply-chain compromise.
+        # v0.36.0 is the current official release and, verified
+        # directly against its own action.yaml (commit
+        # ed142fd0673e97e23eac54620cfb913e5ce36c25, cross-checked
+        # against the v0.36.0 tag's blob SHA/size — identical), pins
+        # its own internal dependencies by commit SHA rather than tag
+        # (aquasecurity/setup-trivy@3fb12ec... # v0.2.6,
+        # actions/cache@27d5ce7f... # v5.0.5) — the same hardening
+        # applied here to our own reference to it. All inputs below
+        # (image-ref/format/severity/exit-code/ignore-unfixed) are
+        # still declared by v0.36.0's schema — confirmed directly,
+        # unchanged.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: 'vistaar-backend:ci'
           format: 'table'
