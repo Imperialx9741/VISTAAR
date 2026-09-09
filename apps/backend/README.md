@@ -318,4 +318,4 @@ docker stop vistaar-backend
 docker rm vistaar-backend
 ```
 
-*Note: For a real deployment target (not local Docker), see `infrastructure/kubernetes/` and `infrastructure/terraform/digitalocean/` — DigitalOcean Kubernetes, per technical-architecture.md §64 and ADR-0035.*
+*Note: For a real deployment target (not local Docker), see `infrastructure/kubernetes/` and `infrastructure/terraform/aws/` — Amazon EKS, per ADR-0063 (supersedes ADR-0035's earlier DigitalOcean choice). `infrastructure/terraform/digitalocean/` is superseded and kept only for history — do not use it.*
