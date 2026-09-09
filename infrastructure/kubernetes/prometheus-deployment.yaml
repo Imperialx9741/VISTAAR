@@ -1,0 +1,71 @@
+# Monitoring (ADR-0053). Self-hosted Prometheus — no managed/SaaS
+# provider, matching this codebase's existing self-hosted-over-managed
+# pattern for Kafka (ADR-0017/ADR-0035). Same "written and syntax-
+# validated, not applied — no live cluster exists in this environment"
+# caveat as every other manifest in this directory.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vistaar-prometheus
+  namespace: vistaar
+  labels:
+    app: vistaar-prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vistaar-prometheus
+  template:
+    metadata:
+      labels:
+        app: vistaar-prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.53.0
+          ports:
+            - containerPort: 9090
+              name: http
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus/prometheus.yml
+              subPath: prometheus.yml
+            - name: rules
+              mountPath: /etc/prometheus/rules
+            - name: data
+              mountPath: /prometheus
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: config
+          configMap:
+            name: vistaar-prometheus-config
+        - name: rules
+          configMap:
+            name: vistaar-prometheus-rules
+        - name: data
+          # A real production deployment should use a PersistentVolumeClaim
+          # here instead — emptyDir loses metrics history on every pod
+          # restart. Left as emptyDir since no StorageClass has been
+          # chosen for this cluster yet (no live cluster exists to check
+          # against); flagged, not silently decided.
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vistaar-prometheus
+  namespace: vistaar
+spec:
+  selector:
+    app: vistaar-prometheus
+  ports:
+    - port: 9090
+      targetPort: 9090
+      name: http
+  type: ClusterIP

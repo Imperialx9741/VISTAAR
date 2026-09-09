@@ -1,0 +1,71 @@
+# Non-secret backend configuration (ADR-0063, superseding ADR-0035's
+# DigitalOcean-specific version of this file). Values not overridden
+# here fall back to core/config.py's own defaults — see
+# apps/backend/.env.example for the full list of what's configurable.
+#
+# DATABASE_URL, REDIS_URL, and every *_KEY/*_SECRET value are
+# deliberately absent from this ConfigMap — they belong in
+# backend-secret.yaml (sourced from RDS PostgreSQL/ElastiCache Redis
+# connection strings and S3 credentials that only exist once
+# infrastructure/terraform/aws is actually applied).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vistaar-backend-config
+  namespace: vistaar
+data:
+  APP_ENV: "production"
+  APP_NAME: "vistaar"
+  APP_VERSION: "1.0.0"
+  BACKEND_HOST: "0.0.0.0"
+  BACKEND_PORT: "8000"
+  # CORS_ALLOWED_ORIGINS intentionally absent here — core/config.py's
+  # own dev-friendly default (http://localhost:3000) is wrong for
+  # production, but no real Admin Web production origin has been
+  # decided/deployed yet. Set this once one is, the same "flag the gap
+  # rather than invent a placeholder that could ship unnoticed" treatment
+  # already given to FCM_SERVICE_ACCOUNT_JSON below.
+  KAFKA_BOOTSTRAP_SERVERS: "kafka.vistaar.svc.cluster.local:9092"
+  # AWS S3 region — see infrastructure/terraform/aws. STORAGE_ENDPOINT
+  # is deliberately absent here (real AWS S3 needs no override, unlike
+  # the superseded DigitalOcean Spaces setup — boto3's own default
+  # endpoint resolution applies).
+  STORAGE_REGION: "ap-south-1"
+  STORAGE_BUCKET: "vistaar-storage"
+  SMS_PROVIDER: "msg91"
+  JWT_ALGORITHM: "HS256"
+  JWT_ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+  MATCHING_SEARCH_RADIUS_KM: "5"
+  MATCHING_OFFER_TTL_SECONDS: "20"
+  # Sarthi Wallet Recharge (ADR-0060) — "dev" until real Razorpay TEST
+  # (or, eventually, SBI production) credentials are filled into
+  # backend-secret.yaml; see that file's own comment.
+  WALLET_RECHARGE_PROVIDER: "dev"
+  WALLET_RECHARGE_MINIMUM_AMOUNT: "200.00"
+  # API Rate Limiting (ADR-0061) — the defaults core/config.py itself
+  # already falls back to; listed explicitly here so a real production
+  # tuning pass has an obvious place to override them, matching this
+  # file's own existing convention for MATCHING_* above.
+  RATE_LIMIT_RIDE_CREATE_PER_HOUR: "20"
+  RATE_LIMIT_RIDE_CANCEL_PER_HOUR: "20"
+  RATE_LIMIT_RIDE_OFFER_RESPONSE_PER_HOUR: "60"
+  RATE_LIMIT_FARE_CHANGE_PER_HOUR: "20"
+  RATE_LIMIT_WALLET_RECHARGE_PER_HOUR: "10"
+  RATE_LIMIT_PROMOTION_USAGE_PER_HOUR: "20"
+  RATE_LIMIT_REFERRAL_ATTACH_PER_HOUR: "10"
+  RATE_LIMIT_SUPPORT_MESSAGE_PER_HOUR: "30"
+  RATE_LIMIT_EVIDENCE_UPLOAD_PER_HOUR: "30"
+  RATE_LIMIT_ADMIN_API_PER_MINUTE: "300"
+  # Dead config predating the P2P ride-fare model (ADR-0025/ADR-0026) —
+  # see .env.example's own note; unused by any code path.
+  PAYMENT_PROVIDER: "stripe"
+  # Push Notifications (ADR-0052) — flip to "fcm" once
+  # backend-deployment.yaml mounts a real Firebase service-account
+  # credential and FCM_SERVICE_ACCOUNT_JSON (below) points at it; stays
+  # "dev" (logs only) until then. FCM_SERVICE_ACCOUNT_JSON itself is a
+  # mounted-volume file path, not set here — see backend-secret.example
+  # .yaml's own comment on this.
+  PUSH_PROVIDER: "dev"
+  # Monitoring (ADR-0053). SENTRY_DSN itself is a secret (backend-secret
+  # .example.yaml), not set here.
+  SENTRY_ENVIRONMENT: "production"

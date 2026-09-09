@@ -1,0 +1,161 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--page-bg);
+  padding: 24px;
+}
+
+.card {
+  width: 100%;
+  max-width: 360px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 28px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.brandMark {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--vistaar-gold);
+  color: var(--vistaar-deep-green);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.brandName {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.brandSub {
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-top: 1px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.heading {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.subheading {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-top: -8px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.phoneRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  padding: 0 10px;
+}
+
+.phoneRow:focus-within {
+  border-color: var(--vistaar-gold);
+}
+
+.phonePrefix {
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.phoneRow .input {
+  border: none;
+  padding: 8px 0;
+  background: transparent;
+}
+
+.input {
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: inherit;
+  letter-spacing: 0.04em;
+}
+
+.input:focus-visible {
+  border-color: var(--vistaar-gold);
+  outline: none;
+}
+
+.errorBanner {
+  padding: 10px 12px;
+  background: var(--danger-bg);
+  border: 1px solid rgba(178, 58, 46, 0.35);
+  border-radius: 8px;
+  color: var(--danger);
+  font-size: 12.5px;
+}
+
+.primaryButton {
+  font-size: 13px;
+  font-weight: 650;
+  color: #fff;
+  background: var(--vistaar-deep-green);
+  border: none;
+  border-radius: 7px;
+  padding: 10px 16px;
+  cursor: pointer;
+}
+
+.primaryButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.linkButton {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  align-self: center;
+}
+
+.linkButton:hover {
+  color: var(--ink);
+}

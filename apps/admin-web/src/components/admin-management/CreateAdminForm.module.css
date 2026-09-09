@@ -1,0 +1,84 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin-bottom: 2px;
+}
+
+.input {
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: inherit;
+}
+
+.input:focus-visible {
+  border-color: var(--vistaar-gold);
+}
+
+.error {
+  padding: 10px 12px;
+  background: var(--danger-bg);
+  border: 1px solid rgba(178, 58, 46, 0.35);
+  border-radius: 8px;
+  color: var(--danger);
+  font-size: 12.5px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.primaryButton {
+  font-size: 13px;
+  font-weight: 650;
+  color: #fff;
+  background: var(--vistaar-deep-green);
+  border: none;
+  border-radius: 7px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.primaryButton:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.secondaryButton {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.secondaryButton:disabled {
+  opacity: 0.55;
+  cursor: default;
+}

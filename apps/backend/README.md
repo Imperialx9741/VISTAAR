@@ -39,6 +39,14 @@ python -m pip install --upgrade pip
 pip install -e .[dev]
 ```
 
+> `uv.lock` in this directory is used only by the production
+> `Dockerfile` (`uv sync --frozen`, for a reproducible, reviewable
+> shipped image — security-review-pass-2-2026-09-03.md §3.2) — plain
+> local development, as above, is unaffected and does not need `uv` at
+> all. Regenerate it (`uv lock`) and commit the result whenever
+> `pyproject.toml`'s dependencies change; the Docker build fails loudly
+> if the two ever drift out of sync.
+
 ### 5. Run the Backend
 Start the FastAPI server locally:
 ```powershell
@@ -163,6 +171,43 @@ Run all Alembic commands from the `apps/backend/` directory:
   alembic downgrade -1
   ```
 
+### 5. Manual diagnostic scripts and the dev database
+
+`DATABASE_URL`'s default (`core/config.py`) points at the local
+docker-compose Postgres — the same database `uvicorn`/the Admin Web/the
+mobile app use for real manual testing. `pytest` never touches it
+(`tests/conftest.py` forces `DATABASE_URL` to an isolated
+`vistaar_test_db` before any test module even imports `core.config` —
+see `tests/_integration_db.py`'s own docstring for the history of why
+that exists: every DB-backed test used to run against this exact dev
+database, and the resulting pollution — thousands of rows from two
+runs on 2026-08-21/22 — was still being cleaned up as of 2026-09-08).
+
+That isolation only covers `pytest`. **A one-off script that imports
+`core.database.SessionLocal()` directly — `python -c "..."`, a
+throwaway `.py` file, anything that isn't run through `pytest` — talks
+to the real dev database, with no cleanup.** This includes diagnostic
+scripts written during an AI-assisted session to reproduce a bug end-
+to-end (exactly the technique used to diagnose several issues in this
+project's history) — those are exactly as capable of leaving permanent
+rows behind as the pre-isolation test runs were.
+
+If you (or an assistant) need to run one:
+- Prefer calling into the service/domain layer with fabricated
+  in-memory arguments where possible, rather than round-tripping
+  through the real DB, when the question doesn't require persistence.
+- When a real DB round-trip is genuinely needed, use an obviously
+  fake, greppable phone number/identifier (a repeated-digit prefix,
+  e.g. `+919000000xxx`, is already the informal convention in this
+  project's own diagnostic history) so the rows are trivially
+  findable and excludable later, and clean them up in the same
+  session once the diagnosis is done — don't leave them for someone
+  else to puzzle over.
+- Never run a full feature-verification flow (e.g. "does the whole
+  signup→approval→ride lifecycle work") against this database from a
+  script instead of `pytest` — that's exactly the shape of the
+  original 2026-08-21/22 pollution.
+
 ## Redis Integration Foundation
 
 ### 1. Overview & Role
@@ -195,7 +240,7 @@ You can verify Redis connectivity in two ways:
 - **Configuration**: The `KAFKA_BOOTSTRAP_SERVERS` target is supplied through centralized `Settings`, defaulting to:
   `127.0.0.1:9092`
 - **Resource Lifecycle**: The connection lifecycle is strictly managed via `check_kafka_connection()`, which starts the admin client, queries broker metadata (`describe_cluster()`), and guarantees teardown (`await admin.close()`) in a `finally` block.
-- **State**: Infrastructure foundation only. **Zero** business topics, producers, consumers, or domain event handlers are implemented yet.
+- **State**: `shared/outbox_publisher.py` (ADR-0017) is a real producer, publishing every domain transition's outbox row; `modules/notification/consumer.py` (ADR-0038) is a real consumer, covering 4 event types. Both run in-process (main.py's lifespan), not as separate worker processes.
 
 ### 2. Local Kafka Container
 Start the Task 13 infrastructure stack (Kafka running in KRaft mode):
@@ -212,9 +257,33 @@ You can verify Kafka connectivity in two ways:
   ```
   *(Note: Kafka tests skip gracefully if the broker is unreachable, keeping unit test runs independent).*
 
+## Background Worker (Celery)
+
+### 1. Overview & Role
+- **Role**: Background Worker Foundation (ADR-0039, owner-approved). Runs scheduled jobs that don't fit `main.py`'s in-process asyncio model — currently five periodic tasks, all in `modules/notification/tasks.py` (promotion/document expiry warnings, scheduled broadcast dispatch, one bounded FAILED-SMS/PUSH retry, ADR-0075) plus `modules/ride/tasks.py` (promoting due scheduled rides) — see `shared/celery_app.py`'s own `beat_schedule` for the authoritative, up-to-date list.
+- **Broker/backend**: The same Redis instance as `REDIS_URL` — no separate infrastructure.
+- **Process model**: Celery workers are a genuinely separate OS process from the FastAPI app (unlike the outbox publisher/notification consumer above) — nothing in `main.py` starts or depends on this.
+
+### 2. Run It Locally
+Start the dev infrastructure stack first (Redis + Postgres, `docker compose -f infrastructure/docker/docker-compose.dev.yml up -d`), then, from `apps/backend/`:
+```bash
+celery -A shared.celery_app worker --beat --loglevel=info
+```
+This combines Celery's scheduler (Beat) and its worker pool in one process — see ADR-0039 Decision 2 for why this stays a single process rather than two.
+
+### 3. Verify It's Working
+```bash
+celery -A shared.celery_app inspect ping
+```
+should report one node online. To run a task immediately instead of waiting for its schedule:
+```python
+from modules.notification.tasks import check_expiring_promotions_task
+check_expiring_promotions_task.delay()
+```
+
 ## Docker Containerization Guide
 
-The backend application can be containerized and run locally for development and testing.
+The backend application can be containerized and run locally for development and testing. The image is a multi-stage build (ADR-0035): a builder stage installs the production dependencies declared in `pyproject.toml` (`[project].dependencies`, not the `dev` group) into a venv via `uv`, and the runtime stage copies that venv plus the `src/` tree, runs as a non-root user, and exposes a Docker `HEALTHCHECK` against `/health`.
 
 ### Prerequisites
 - Docker Desktop or Docker Engine installed and running.
@@ -226,10 +295,14 @@ docker build -t vistaar-backend:latest .
 ```
 
 ### 2. Run the Container
-Start the backend container, mapping host port `8000` to container port `8000`:
+Start the backend container, mapping host port `8000` to container port `8000`. It needs `DATABASE_URL`, `REDIS_URL`, and the other settings `core/config.py` reads (see `.env.example`) — pass them with `--env-file` or individual `-e` flags, and join the dev network (`infrastructure/docker/docker-compose.dev.yml`) so `postgres`/`redis`/`kafka` resolve by service name:
 ```bash
-docker run -d --name vistaar-backend -p 8000:8000 vistaar-backend:latest
+docker run -d --name vistaar-backend -p 8000:8000 \
+  --network vistaar_dev_network \
+  --env-file ../../.env \
+  vistaar-backend:latest
 ```
+Kafka being unavailable does not crash the process — the outbox publisher retries its connection in the background (`main.py`'s `lifespan()`), so the API still serves traffic without it.
 
 ### 3. Access Health Endpoint
 Verify that the server starts successfully and is serving traffic:
@@ -245,4 +318,4 @@ docker stop vistaar-backend
 docker rm vistaar-backend
 ```
 
-*Note: Infrastructure dependencies (like PostgreSQL, Redis, Kafka) are not integrated in this standalone container and will be configured in subsequent tasks.*
+*Note: For a real deployment target (not local Docker), see `infrastructure/kubernetes/` and `infrastructure/terraform/digitalocean/` — DigitalOcean Kubernetes, per technical-architecture.md §64 and ADR-0035.*

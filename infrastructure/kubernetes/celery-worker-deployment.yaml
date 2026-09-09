@@ -1,0 +1,85 @@
+# Background Worker Foundation (ADR-0039). Runs on the SAME image as
+# backend-deployment.yaml (celery is a production dependency of
+# apps/backend/pyproject.toml) — only the container command differs.
+#
+# replicas: 1 is deliberate, not an oversight (ADR-0039 Decision 2):
+# this combines Celery's Beat scheduler with its worker pool in one
+# process (`--beat`), and Beat must never run more than one instance —
+# two would double-fire every periodic task. Splitting Beat and the
+# worker pool into separate, independently-scaled Deployments is a real
+# future option once task volume justifies it, not needed yet.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vistaar-celery-worker
+  namespace: vistaar
+  labels:
+    app: vistaar-celery-worker
+spec:
+  replicas: 1
+  strategy:
+    # Never run two Beat schedulers during a rollout, even briefly.
+    type: Recreate
+  selector:
+    matchLabels:
+      app: vistaar-celery-worker
+  template:
+    metadata:
+      labels:
+        app: vistaar-celery-worker
+    spec:
+      # Same security review pass 2 addition as backend-deployment.yaml
+      # — see that file's own comment for the full reasoning; this runs
+      # the identical image.
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: celery-worker
+          image: REPLACE_ME_REGISTRY/vistaar-backend:REPLACE_ME_TAG
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - celery
+            - "-A"
+            - shared.celery_app
+            - worker
+            - "--beat"
+            - "--loglevel=info"
+          envFrom:
+            - configMapRef:
+                name: vistaar-backend-config
+            - secretRef:
+                name: vistaar-backend-secret
+          # No HTTP server in this container — Kubernetes has no
+          # built-in "is celery healthy" probe; `celery inspect ping`
+          # via execProbe is the standard substitute. Deliberately not
+          # targeted at a specific worker name (`-d celery@<host>`):
+          # exec probes run without a shell, so `$(HOSTNAME)` would
+          # never be substituted (Kubernetes' own $(VAR) substitution in
+          # command/args only sees this container's declared env/
+          # envFrom, not runtime-set vars like HOSTNAME) — verified via
+          # a real `docker exec` reproduction that the targeted form
+          # fails while the untargeted one succeeds. Untargeted `inspect
+          # ping` is unambiguous here anyway, since replicas: 1 above
+          # means there is only ever one worker to reach.
+          livenessProbe:
+            exec:
+              command:
+                - celery
+                - "-A"
+                - shared.celery_app
+                - inspect
+                - ping
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "192Mi"
+            limits:
+              cpu: "500m"
+              memory: "384Mi"

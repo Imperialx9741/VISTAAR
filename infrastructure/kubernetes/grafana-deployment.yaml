@@ -1,0 +1,85 @@
+# Monitoring (ADR-0053). Self-hosted Grafana, reading from
+# vistaar-prometheus (prometheus-deployment.yaml). Same "written and
+# syntax-validated, not applied" caveat as every other manifest here.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vistaar-grafana
+  namespace: vistaar
+  labels:
+    app: vistaar-grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vistaar-grafana
+  template:
+    metadata:
+      labels:
+        app: vistaar-grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.1.0
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            # Real production admin credentials belong in
+            # backend-secret.yaml's own pattern (a Secret, not this
+            # plain env — see backend-secret.example.yaml), not
+            # invented here as a literal value.
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: vistaar-grafana-secret
+                  key: admin-user
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: vistaar-grafana-secret
+                  key: admin-password
+          volumeMounts:
+            - name: datasource-provisioning
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+            - name: data
+              mountPath: /var/lib/grafana
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+      volumes:
+        - name: datasource-provisioning
+          configMap:
+            name: vistaar-grafana-datasource
+        - name: dashboard-provider
+          configMap:
+            name: vistaar-grafana-dashboard-provider
+        - name: dashboards
+          configMap:
+            name: vistaar-grafana-dashboards
+        - name: data
+          # Same emptyDir-vs-PVC caveat as prometheus-deployment.yaml's
+          # own data volume — a real deployment should persist this.
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vistaar-grafana
+  namespace: vistaar
+spec:
+  selector:
+    app: vistaar-grafana
+  ports:
+    - port: 3000
+      targetPort: 3000
+      name: http
+  type: ClusterIP

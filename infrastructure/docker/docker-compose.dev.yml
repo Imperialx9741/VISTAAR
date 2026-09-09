@@ -1,6 +1,11 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    # PostGIS-enabled image (Phase 3 / Task 3.1, ADR-0010 Decision 4):
+    # ride.rides requires GEOMETRY(Point, 4326) columns
+    # (database-design.md §9.1), which the plain postgres:16-alpine image
+    # cannot support. Same Postgres major version (16) as before, so the
+    # existing vistaar_postgres_data volume upgrades in place.
+    image: postgis/postgis:16-3.4
     container_name: vistaar-postgres-dev
     restart: unless-stopped
     ports:
@@ -67,6 +72,76 @@ services:
       retries: 5
       start_period: 10s
 
+  prometheus:
+    # Monitoring (ADR-0053). Scrapes the backend's own GET /metrics —
+    # the backend itself is not a compose service here (it runs via
+    # `uvicorn` directly on the host, apps/backend/README.md), reached
+    # through host.docker.internal (Docker Desktop's own documented
+    # host-reachability mechanism; extra_hosts below makes the same
+    # thing work on Linux hosts too, where it isn't automatic).
+    image: prom/prometheus:v2.53.0
+    container_name: vistaar-prometheus-dev
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.dev.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus-rules.dev.yml:/etc/prometheus/rules/prometheus-rules.dev.yml:ro
+      - vistaar_prometheus_data:/prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - alertmanager
+    networks:
+      - vistaar_dev_network
+
+  alertmanager:
+    # Alerting (added 2026-09-03, alongside real Slack wiring). The
+    # webhook URL is never baked into the committed alertmanager.dev.yml
+    # template (see that file's own comment) — substituted at startup
+    # from ALERTMANAGER_SLACK_WEBHOOK_URL (env_file below, from the
+    # repo-root .env, gitignored, never committed) via `sed`, since
+    # Alertmanager's own config format has no native env-var expansion
+    # (verified directly against this image: no envsubst, but sed
+    # exists — that's what's actually used here).
+    image: prom/alertmanager:v0.27.0
+    container_name: vistaar-alertmanager-dev
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        sed 's|__SLACK_WEBHOOK_URL__|'"$$ALERTMANAGER_SLACK_WEBHOOK_URL"'|'
+        /etc/alertmanager/alertmanager.yml > /tmp/alertmanager.yml &&
+        exec /bin/alertmanager --config.file=/tmp/alertmanager.yml --storage.path=/alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager.dev.yml:/etc/alertmanager/alertmanager.yml:ro
+    networks:
+      - vistaar_dev_network
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: vistaar-grafana-dev
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      # Local dev only — never the real credential for a production
+      # instance, which does not exist in this environment.
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - vistaar_grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - vistaar_dev_network
+
 volumes:
   vistaar_postgres_data:
     name: vistaar_postgres_data
@@ -74,6 +149,10 @@ volumes:
     name: vistaar_redis_data
   vistaar_kafka_data:
     name: vistaar_kafka_data
+  vistaar_prometheus_data:
+    name: vistaar_prometheus_data
+  vistaar_grafana_data:
+    name: vistaar_grafana_data
 
 networks:
   vistaar_dev_network:

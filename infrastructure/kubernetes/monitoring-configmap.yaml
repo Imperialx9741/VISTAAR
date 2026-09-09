@@ -1,0 +1,171 @@
+# Monitoring (ADR-0053). Prometheus scrape config + Grafana provisioning
+# (datasource + starter dashboard), as ConfigMaps mounted by prometheus-
+# deployment.yaml/grafana-deployment.yaml — same "config in a ConfigMap,
+# image stays generic" pattern backend-configmap.yaml already uses for
+# the backend itself.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vistaar-prometheus-config
+  namespace: vistaar
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+    rule_files:
+      - /etc/prometheus/rules/vistaar-alerts.yml
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets: ["vistaar-alertmanager:9093"]
+    scrape_configs:
+      - job_name: vistaar-backend
+        metrics_path: /metrics
+        static_configs:
+          - targets: ["vistaar-backend:80"]
+---
+# Alerting rules (added 2026-09-03, production-readiness pass — ADR-0053
+# itself only decided Prometheus/Grafana/Sentry as the monitoring stack;
+# it never wired up actual alert rules or a notification path, which is
+# the gap this ConfigMap closes). Scoped deliberately to metrics that
+# actually exist today: prometheus-fastapi-instrumentator's standard
+# `http_requests_total`/`http_request_duration_seconds` (src/main.py) and
+# Prometheus's own built-in `up` (scrape-target health). No custom
+# business metric (Kafka consumer lag, wallet-debit failure rate, ride-
+# matching latency, etc.) is instrumented in the backend yet — adding
+# those is application code, not monitoring config, and out of scope for
+# this pass; noted as a real, open gap in deployment-runbook.md rather
+# than invented here. Similarly, no infrastructure-level alert (pod
+# crash-looping, node pressure, PVC filling up) is included — those need
+# kube-state-metrics/node-exporter scraped, and neither is installed by
+# any manifest in this directory; a real follow-up once a live cluster
+# exists to actually wire and test that scrape config against.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vistaar-prometheus-rules
+  namespace: vistaar
+data:
+  vistaar-alerts.yml: |
+    groups:
+      - name: vistaar-backend
+        rules:
+          - alert: BackendDown
+            expr: up{job="vistaar-backend"} == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "VISTAAR backend is not responding to /metrics scrapes"
+              description: "Prometheus has been unable to scrape vistaar-backend for 2 minutes. The service may be down or unreachable."
+          - alert: HighErrorRate
+            expr: sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) > 0.05
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "VISTAAR backend 5xx rate above 5% for 5 minutes"
+              description: "{{ $value | humanizePercentage }} of requests are returning 5xx. Check `kubectl logs deployment/vistaar-backend -n vistaar` and Sentry."
+          - alert: HighLatencyP99
+            expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 2
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "VISTAAR backend p99 latency above 2s for 5 minutes"
+              description: "p99 request latency is {{ $value }}s. Check for slow queries, connection-pool exhaustion, or an unhealthy downstream (RDS/ElastiCache/Kafka)."
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vistaar-grafana-datasource
+  namespace: vistaar
+data:
+  prometheus.yml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://vistaar-prometheus:9090
+        isDefault: true
+        editable: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vistaar-grafana-dashboard-provider
+  namespace: vistaar
+data:
+  dashboards.yml: |
+    apiVersion: 1
+    providers:
+      - name: VISTAAR
+        orgId: 1
+        folder: ""
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vistaar-grafana-dashboards
+  namespace: vistaar
+data:
+  vistaar-backend.json: |
+    {
+      "title": "VISTAAR Backend",
+      "uid": "vistaar-backend",
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "10s",
+      "time": { "from": "now-1h", "to": "now" },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Request rate by status",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "targets": [
+            { "expr": "sum(rate(http_requests_total[1m])) by (status)", "legendFormat": "{{status}}" }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Request latency (p50 / p95 / p99)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "targets": [
+            { "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+            { "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95" },
+            { "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p99" }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Requests by handler",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "targets": [
+            { "expr": "sum(rate(http_requests_total[1m])) by (handler)", "legendFormat": "{{handler}}" }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "5xx error rate",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "targets": [
+            { "expr": "sum(rate(http_requests_total{status=~\"5..\"}[1m]))", "legendFormat": "5xx/s" }
+          ]
+        }
+      ]
+    }

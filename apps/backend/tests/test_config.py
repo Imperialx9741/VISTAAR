@@ -25,6 +25,9 @@ def test_custom_environment_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@db:5432/db")
     monkeypatch.setenv("REDIS_URL", "redis://cache:6379/1")
     monkeypatch.setenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+    # APP_ENV=production below now also requires a real JWT_SECRET — see
+    # test_placeholder_jwt_secret_rejected_outside_development.
+    monkeypatch.setenv("JWT_SECRET", "a-real-randomly-generated-secret-value")
 
     custom_settings = Settings()
     assert custom_settings.APP_ENV == "production"
@@ -42,6 +45,54 @@ def test_invalid_app_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_ENV", "invalid_env")
     with pytest.raises(ValueError, match="APP_ENV must be one of"):
         Settings()
+
+
+def test_placeholder_jwt_secret_rejected_outside_development(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Security review finding, 2026-09-02: booting with the committed
+    placeholder JWT_SECRET anywhere but local development would let
+    anyone who has read this repository forge a valid token for any
+    account — see core/config.py's own comment on this check."""
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+    with pytest.raises(ValueError, match="JWT_SECRET is still the default"):
+        Settings()
+
+    monkeypatch.setenv("APP_ENV", "staging")
+    with pytest.raises(ValueError, match="JWT_SECRET is still the default"):
+        Settings()
+
+    monkeypatch.setenv("APP_ENV", "testing")
+    with pytest.raises(ValueError, match="JWT_SECRET is still the default"):
+        Settings()
+
+
+def test_placeholder_jwt_secret_still_allowed_in_development(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The default APP_ENV — local development never has to set
+    JWT_SECRET just to start the app, same convenience every other
+    placeholder-default secret in this codebase already gets."""
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+
+    dev_settings = Settings()
+
+    assert dev_settings.JWT_SECRET == (
+        "placeholder_jwt_secret_key_minimum_32_characters_long"
+    )
+
+
+def test_real_jwt_secret_allowed_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("JWT_SECRET", "a-real-randomly-generated-secret-value")
+
+    prod_settings = Settings()
+
+    assert prod_settings.APP_ENV == "production"
 
 
 def test_empty_string_configurations(monkeypatch: pytest.MonkeyPatch) -> None:

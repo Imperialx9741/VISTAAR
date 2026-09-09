@@ -1,0 +1,82 @@
+# Alertmanager (added 2026-09-03, production-readiness pass, under the
+# existing ADR-0053 monitoring stack decision). Routes the alert rules
+# defined in monitoring-configmap.yaml's vistaar-prometheus-rules
+# ConfigMap to a real notification channel. Same "written and syntax-
+# validated, not applied — no live cluster exists in this environment"
+# caveat as every other manifest in this directory.
+#
+# The whole config lives in vistaar-alertmanager-secret (see
+# alertmanager-secret.example.yaml), not a ConfigMap, because it embeds
+# the notification webhook URL — a real secret, not app config, same
+# split backend-secret.yaml/backend-configmap.yaml already draws.
+# alertmanager.yml has no native "read this value from an env var"
+# mechanism, so unlike backend-configmap.yaml this can't be split into a
+# non-secret ConfigMap plus one secret value; the whole file goes in the
+# Secret. No Slack/PagerDuty/email credential has been provided — the
+# example template ships a placeholder webhook URL, not invented on the
+# owner's behalf. Copy alertmanager-secret.example.yaml to
+# alertmanager-secret.yaml, fill in a real webhook URL, apply it, and
+# restart this Deployment. Until then, alerts still fire and are visible
+# in Alertmanager's own UI (port-forward 9093) but reach no one — the
+# example template's placeholder is a syntactically valid but
+# non-functional URL specifically so the pod starts cleanly rather than
+# crash-looping (see that file's own comment for why this matters).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vistaar-alertmanager
+  namespace: vistaar
+  labels:
+    app: vistaar-alertmanager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vistaar-alertmanager
+  template:
+    metadata:
+      labels:
+        app: vistaar-alertmanager
+    spec:
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.27.0
+          args:
+            - "--config.file=/etc/alertmanager/alertmanager.yml"
+            - "--storage.path=/alertmanager"
+          ports:
+            - containerPort: 9093
+              name: http
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager/alertmanager.yml
+              subPath: alertmanager.yml
+            - name: data
+              mountPath: /alertmanager
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+      volumes:
+        - name: config
+          secret:
+            secretName: vistaar-alertmanager-secret
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vistaar-alertmanager
+  namespace: vistaar
+spec:
+  selector:
+    app: vistaar-alertmanager
+  ports:
+    - port: 9093
+      targetPort: 9093
+      name: http
+  type: ClusterIP

@@ -1,0 +1,17 @@
+# TEMPLATE — copy to backend.hcl (gitignored — see .gitignore) and fill
+# in real values from `terraform output backend_config_snippet` after
+# applying ../aws-state-backend/ once. Then:
+#
+#   terraform init -backend-config=backend.hcl
+#
+# Do NOT commit the filled-in backend.hcl — same reasoning as every
+# other *.example template in this repo (backend-secret.example.yaml,
+# key.properties.example, etc.): the real bucket name is not secret, but
+# keeping the pattern consistent (template committed, real file
+# gitignored) avoids one accidental exception someone has to remember.
+
+bucket         = "REPLACE_ME_STATE_BUCKET_NAME"
+key            = "vistaar/aws/terraform.tfstate"
+region         = "ap-south-1"
+dynamodb_table = "vistaar-terraform-locks"
+encrypt        = true

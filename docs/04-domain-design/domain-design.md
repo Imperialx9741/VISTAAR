@@ -345,6 +345,11 @@ DeactivateVehicle
 
 A driver may have multiple vehicles.
 
+At most one of a driver's vehicles may be ACTIVE at a time
+(business-rules.md BR-122, approved). Activating a different vehicle
+deactivates the previously ACTIVE one as part of the same atomic
+operation.
+
 Only an approved and active vehicle may be used for matching.
 
 A vehicle cannot be switched while the driver is ONLINE or ON_RIDE.
@@ -382,6 +387,7 @@ OTP lifecycle reference
 ride completion
 early-drop records
 ride cancellation request
+GPS dispute records (BR-124/BR-125, ADR-0032)
 
 9.3 Ride States
 
@@ -408,6 +414,33 @@ RequestEarlyDrop
 ConfirmEarlyDrop
 CompleteRide
 CancelRide
+ScheduleRide (IMPLEMENTED, ADR-0057, 2026-08-31 — composed into an
+extended CreateRide when the request names a future scheduled_for)
+PromoteScheduledRideToSearching (IMPLEMENTED, ADR-0057 — not customer-
+or driver-triggered; composed by a Celery Beat task polling every 5
+minutes, mirroring ADR-0055's own scheduled-broadcast dispatch task)
+
+Implementation status: CreateRide/AssignDriver/MarkArrived/StartRide/
+CompleteRide/CancelRide implemented (Phases 3-7). RequestEarlyDrop/
+ConfirmEarlyDrop implemented (Phase 08, ADR-0030, 2026-08-25) — see the
+ADR for why no GPS-verification gate exists between them, unlike
+MarkArrived/CompleteRide. RequestPickupChange was implemented (Phase
+09, ADR-0033, 2026-08-25) with a driver PROCEED/PASS decision step and
+a ConfirmPickupChange command; simplified by ADR-0056 (owner decision,
+2026-08-31) to a flat 100m hard threshold with no driver decision at
+all — RequestPickupChange now either applies the change immediately or
+rejects it outright, both in one step, and ConfirmPickupChange no
+longer exists (nothing is ever left pending for it to confirm).
+RequestDestinationChange/ConfirmDestinationChange
+implemented (ADR-0033 Decision 9, 2026-08-25) — BR-080's rate was never
+actually TBD (₹8/km, already ratified); the case-classification
+algorithm (BR-079/080/081) is an engineering judgment call, not a new
+business rule (see the ADR). SubmitGpsDisputeEvidence/ResolveGpsDispute
+implemented (BR-124/BR-125,
+ADR-0032, 2026-08-25) — not listed above since they didn't exist in this
+list before; a GPS dispute itself is auto-opened by MarkArrived/
+CompleteRide's own terminal-failure path, not a separate client-initiated
+command.
 
 9.5 Events
 
@@ -415,13 +448,19 @@ RideRequested
 RideAccepted
 RideArrived
 RideStarted
-RidePickupChanged
+RidePickupChanged (REMOVED, ADR-0056, 2026-08-31 — no driver-decision/
+confirmation step exists for pickup change anymore to publish this
+event from)
 RideDestinationChanged
 RideEarlyDropRequested
 RideEarlyDropConfirmed
 RideCompleted
 RideCancelled
 NoDriverFound
+GpsDisputeOpened (BR-124/BR-125, ADR-0032 — event-contracts.md §10.9/10.10)
+GpsDisputeResolved
+RideSchedulePromoted (IMPLEMENTED, ADR-0057 — fired at SCHEDULED →
+SEARCHING, `{"ride_id", "promoted_at"}`; event-contracts.md §10.12)
 
 9.6 Critical Rule
 
@@ -528,9 +567,41 @@ Base Fare
 
 CalculateFare
 CreateFareRevision
-CalculatePickupChangeCharge
+CalculatePickupChangeCharge (REMOVED, ADR-0056, 2026-08-31 — pickup
+change has no chargeable path anymore)
 CalculateDestinationChangeFare
 ApplyPromotionDiscount
+CreateFareRule / SubmitFareRuleForReview / PublishFareRule (ADR-0042)
+CreatePlatformFeeRule / SubmitPlatformFeeRuleForReview /
+  PublishPlatformFeeRule (ADR-0045, 2026-08-26, implemented; the
+  identical workflow as the FareRule trio above, applied to
+  `pricing.platform_fee_rules`, a separate table since a platform fee
+  and a customer fare are different concepts — see the ADR)
+
+Implementation status: CalculateFare (+ApplyPromotionDiscount, folded in
+per ADR-0020 Decision 6) implemented since Phase 04. CalculatePickup
+ChangeCharge was implemented (ADR-0033, 2026-08-25) — billed the
+distance beyond the 250m threshold, at the ride's own per_km rate — and
+then removed (ADR-0056, owner decision, 2026-08-31): pickup change no
+longer has any chargeable path, so there is nothing left for this
+command to compute. CalculateDestinationChangeFare implemented
+(ADR-0033 Decision 9,
+2026-08-25) — classifies WITHIN_ROUTE/BEYOND_ORIGINAL/DIFFERENT_ROUTE
+(BR-079/080/081) and bills accordingly; the route-deviation tolerance
+used to classify is an engineering judgment (see the ADR), not itself a
+new business value. CreateFareRevision remains unbuilt.
+CreateFareRule/SubmitFareRuleForReview/PublishFareRule implemented
+(ADR-0042, 2026-08-26) — the Fare Management admin authoring workflow
+(Admin Web §4.8): DRAFT -> IN_REVIEW -> PUBLISHED, replacing the old
+`active` boolean with a derived liveness check
+(`status='PUBLISHED' AND` the effective window), and Publish closing
+out the previously-live rule for the same vehicle_category so at most
+one is ever live per category. No Edit/Reject transitions exist — only
+what the Admin Web plan's own §4.8 table names.
+CreatePlatformFeeRule/SubmitPlatformFeeRuleForReview/
+PublishPlatformFeeRule implemented (ADR-0045, 2026-08-26) — the
+identical workflow, applied to `pricing.platform_fee_rules` (BR-011's
+driver platform fee) instead of the customer-facing fare.
 
 11.5 Events
 
@@ -628,11 +699,24 @@ Wallet balance must never be modified by another domain through direct database 
 
 13. Payment Domain
 
-13.1 Responsibility
+RECONCILED (ADR-0025, 2026-08-25 — approved P2P Payment Model; extended
+ADR-0026, 2026-08-26): §13.1-13.6 below describe a domain that collects
+and settles the customer's ride-fare payment. VISTAAR never collects
+the ride fare — the customer pays the driver directly, and the platform
+fee is a Wallet Domain (§12) concern already resolved (charged to the
+driver's wallet at ride acceptance — see technical-architecture.md §18,
+ADR-0014). If a Payment domain is built at all, its scope is now two
+narrow flows, neither the ride fare: (1) driver wallet-recharge gateway
+integration (ADR-0025 rule 7), and (2) customer outstanding-penalty
+collection (ADR-0026, Option A — "Customer → VISTAAR," never routed
+through the Wallet Domain or the driver). Everything below describes
+the now-superseded ride-fare scope.
+
+13.1 Responsibility (superseded)
 
 Owns customer payment lifecycle and gateway interaction.
 
-13.2 Owns
+13.2 Owns (superseded)
 
 payments
 payment intents
@@ -642,12 +726,14 @@ settlement state
 refund records
 reconciliation state
 
-13.3 Payment Methods
+13.3 Payment Methods (superseded — no VISTAAR-collected payment method
+exists for the ride fare; BR-035's UPI/Cash describe the customer→driver
+payment, not a VISTAAR method)
 
 ONLINE
 OFFLINE
 
-13.4 Commands
+13.4 Commands (superseded)
 
 CreatePaymentIntent
 ConfirmOnlinePayment
@@ -658,7 +744,7 @@ CreateSettlement
 RequestRefund
 ReconcilePayment
 
-13.5 Events
+13.5 Events (superseded)
 
 PaymentInitiated
 PaymentSucceeded
@@ -681,7 +767,28 @@ Promotion entitlement
 
 It requests those domain operations.
 
+This constraint is unaffected by ADR-0025 and stays correct regardless
+of the Payment domain's narrowed scope.
+
 14. Cash Settlement Boundary
+
+SUPERSEDED IN FULL (ADR-0025, 2026-08-25): this entire flow described
+the Payment Domain creating a VISTAAR settlement obligation from a
+customer's cash payment, which the Wallet Domain then debits. That
+sequence does not exist under the approved model. The correct sequence
+is the reverse order and does not involve the Payment Domain at all:
+
+Wallet Domain (§12) debits the platform fee from the driver's wallet,
+during ride acceptance (technical-architecture.md §18) — before the
+ride happens.
+        ↓
+Ride happens.
+        ↓
+Customer pays driver directly (cash or UPI, BR-035) — no domain
+involvement beyond the Ride/Customer domains recording that the ride is
+complete.
+
+As originally written (superseded):
 
 For an offline ride:
 
@@ -722,6 +829,8 @@ promotion_entitlements
 promotion_usage
 promotion_reservations
 promotion_rules
+promotion_campaigns (ADR-0041)
+promotion_campaign_eligible_customers (ADR-0041)
 
 15.3 Commands
 
@@ -731,6 +840,10 @@ ReservePromotion
 ConsumePromotion
 RestorePromotion
 ExpirePromotion
+CreateCampaign (ADR-0041)
+UpdateCampaign (ADR-0041, DRAFT only)
+ActivateCampaign / PauseCampaign / EndCampaign (ADR-0041)
+RedeemCampaignCode (ADR-0041)
 
 15.4 Events
 
@@ -762,6 +875,26 @@ Discount cap:
 
 TBD
 
+15.6 Campaign (ADR-0041)
+
+An authored, many-times-redeemable coupon definition — distinct from
+an Entitlement (one customer's own grant, possibly created BY redeeming
+a campaign's code). Lifecycle: DRAFT -> ACTIVE <-> PAUSED, and
+DRAFT/ACTIVE/PAUSED -> ENDED (terminal). Editable only in DRAFT — once
+ACTIVE/PAUSED it may already have real redemptions, so only its status
+can change from then on, never discount terms (same never-rewrite-
+history principle Fare Management applies to published fares).
+RedeemCampaignCode validates status/window/vehicle-category/eligible-
+scope/minimum-fare/usage-limits, then creates an Entitlement with the
+discount fields copied from the campaign at that moment (not read live)
+— a FLAT campaign's discount_value is represented on that entitlement
+as discount_percent=100 + max_discount_amount=<value> (§6.1 of the
+ADR), reusing Entitlement's existing two discount fields rather than
+adding a new one. The redeemed entitlement's total_uses is the
+campaign's ride_count_limit (falling back to 1, single-use per
+redemption, when unset), and its expiry is capped at the campaign's own
+ends_at in addition to the usual 30-day window.
+
 16. Referral Domain
 
 16.1 Responsibility
@@ -774,6 +907,7 @@ referral codes
 referral relationships
 referral qualification
 referral reward records
+referral reward configuration (ADR-0043, 2026-08-26, implemented)
 
 16.3 Commands
 
@@ -783,6 +917,14 @@ QualifyCustomerReferral
 QualifyDriverReferral
 IssueReferralReward
 RejectReferral
+ConfigureDriverBonusRule / ConfigureCustomerRewardRule (ADR-0043,
+  implemented) — Create Draft -> Submit for Review -> Publish, the
+  identical workflow ADR-0042 established for Fare Management.
+  QualifyCustomerReferral/QualifyDriverReferral read the currently-
+  PUBLISHED config row at qualification time and copy its values onto
+  the issued reward — never read live again afterward, same
+  "copy at the moment of the event" principle ADR-0041 §6.1 already
+  established for campaign redemption.
 
 16.4 Events
 
@@ -833,6 +975,18 @@ RecordStrike
 ExpirePenalty
 DisputePenalty
 ResolvePenalty
+SearchDriverStrikeHistory (admin read, 2026-08-26, design only — owner
+  decision; a read surface over `penalty.strikes`, already fully
+  populated by RecordStrike since BR-068 — no new column, no new
+  command semantics, `driver.drivers.strikes` stays the at-a-glance
+  summary counter it already is)
+
+Implementation status (Phase 13, ADR-0029, 2026-08-25): DisputePenalty is
+implemented WITHOUT a dedicated command/endpoint of its own — it is
+realized as a Support Case (domain-design.md §21.3's CreateSupportCase,
+`category: "PENALTY_DISPUTE"`) that ResolvePenalty (already implemented,
+below) then decides. See the ADR for why no new `PenaltyStatus` value or
+endpoint was invented for it.
 
 17.4 Current Rules
 
@@ -920,6 +1074,10 @@ TriggerSOS
 AcknowledgeSOS
 EscalateSOS
 ResolveSafetyIncident
+SearchSafetyIncidents (admin read, Admin Web §4.13, 2026-08-26 — the
+  Acknowledge/Escalate/Resolve commands above were already implemented
+  and tested; only the admin HTTP surface, including this search/queue
+  read, was missing)
 
 19.4 Events
 
@@ -945,6 +1103,83 @@ Timestamp
 Ride state
 
 20. Notification Domain
+
+Implementation status: IMPLEMENTED for the foundation (ADR-0034,
+2026-08-25) — `NotificationService.send()` (IN_APP/SMS real; PUSH/
+WHATSAPP raise ChannelNotAvailableError, see the ADR) and
+get_or_create_preferences()/update semantics. No HTTP endpoint exists
+anywhere in api-contracts.md (the same §0.3 stop condition ADR-0018/
+ADR-0021 already hit) — the service layer is composed directly at other
+modules' routers instead of exposed. `ride.accepted`/`ride.arrived` are
+composed synchronously at the router layer (modules/matching/router.py,
+modules/ride/router.py), as a proof the mechanism is real.
+
+Extended (ADR-0038, 2026-08-26): `modules/notification/consumer.py`'s
+`NotificationConsumer` is the first real Kafka consumer in this
+codebase, additively wiring four more of §20.3's events —
+`ride.started`, `ride.completed`, `ride.cancelled`, `penalty.applied` —
+each explicitly named as a Notification consumer in event-contracts.md's
+own per-event "Consumers:" list (§10.4/§10.8/§10.9/§17.1), not just
+domain-design.md's own looser example list here. The remaining §20.3
+examples are deliberately deferred, not silently skipped — see ADR-0038
+Decision 3 for exactly why each one (SOSTriggered's recipient ambiguity,
+PromotionActivated's semantic mismatch with the real `promotion.
+reserved` event, FareChanged's redundancy with the same request's own
+HTTP response, PaymentRequired/PaymentConfirmed's N/A status under
+ADR-0025, WalletLow/PromotionExpiring/DocumentExpiring's missing
+scheduled-job trigger, and SupportEscalated's missing real event).
+
+Extended again (ADR-0039, 2026-08-26): the owner approved Celery,
+closing the Background Worker Foundation gap ADR-0038 named as the
+reason `PromotionExpiring`/`DocumentExpiring` couldn't be built.
+`modules/notification/tasks.py` adds both as real Celery Beat periodic
+tasks (not this domain's Kafka consumer, since neither event was ever
+produced anywhere to consume) — a daily scan warns a customer/driver 3
+days (configurable) before a promotion entitlement or an approved
+driver/vehicle document expires, using the same `NotificationService.
+send()` dispatch and idempotency mechanism the Kafka consumer already
+established, keyed by a value derived from the entity's id and its
+current `expires_at` (not the id alone, so a renewed entity that later
+approaches expiry again still gets warned). `WalletLow` remains
+deferred — better wired reactively at a debit than on a schedule.
+
+Extended again (ADR-0044, 2026-08-26, implemented): `templates`
+(§20.2's own already-named ownership) becomes a real, admin-editable,
+versioned store (`notification.templates`). `send()`'s template
+lookup checks the currently-PUBLISHED row for `(template_key,
+channel)` first; the exact version rendered is stamped onto the
+`Delivery` row it produces (`template_version_id`) so a later template
+edit can never appear to change what a past delivery actually said.
+The static `SMS_TEMPLATES` Python dict was NOT deleted as originally
+planned — resolved during implementation (2026-08-26), the same "no
+fallback is too fragile" lesson ADR-0043 already learned: it remains a
+last-resort fallback, used only when no PUBLISHED row exists yet for a
+given (template_key, channel). See ADR-0044 for the full design.
+
+Extended again (ADR-0050, 2026-08-28, implemented): `safety.
+sos_triggered` — the one §20.3 example ADR-0038 deferred specifically
+for "recipient ambiguity" — is now wired into `NotificationConsumer`.
+The owner resolved the ambiguity: the recipient is VISTAAR's own
+internal safety/call-center team (every Super Admin plus every employee
+admin holding SAFETY MANAGE access, ADR-0040's permission model), not a
+real emergency-service API (BR-112). Sent over both IN_APP and SMS,
+unlike every other wired event here (IN_APP-only) — an SOS is
+time-sensitive enough that an in-app badge alone isn't treated as
+sufficient.
+
+Extended again (ADR-0052, 2026-08-28, implemented): `Channel.PUSH` is
+real now too, closing the last gap ADR-0034 originally left ("PUSH/
+WHATSAPP have no real provider yet"). `notification.device_tokens`
+(new table) holds one row per registered FCM token, written via this
+domain's first-ever customer/driver-facing HTTP endpoints
+(`POST`/`DELETE /api/v1/notifications/me/devices`, api-contracts.md
+§45.1) — reachable by any authenticated account, not tied to one
+account type. `NotificationService.send()`'s PUSH branch now looks up
+the user's registered devices and dispatches via a `PushProvider`
+(mirrors `SmsProvider`'s own dev/real split — `DevConsolePushProvider`
+by default, `FcmPushProvider` once `PUSH_PROVIDER=fcm` and a real
+Firebase service-account credential are supplied). `Channel.WHATSAPP`
+is unaffected — still blocked on BSP selection.
 
 20.1 Responsibility
 
@@ -1008,6 +1243,21 @@ CreateSupportCase
 EscalateToHuman
 ResolveSupportCase
 
+Implementation status (Phase 13/14, ADR-0022 + ADR-0029): CreateSupportCase/
+ResolveSupportCase implemented (ADR-0022); EscalateToHuman implemented as
+AssignSupportCase (ADR-0022 Decision 2 — an admin claiming the case IS the
+human escalation, no separate AI actor exists to escalate from);
+AskSupportAI BLOCKED (no LLM provider — ADR-0022 Decision 4). Both
+dispute concepts this documentation set names (BR-121's ride-fare
+disputes, §17.3's DisputePenalty) are filed as ordinary
+CreateSupportCase calls (`category: "RIDE_FARE_DISPUTE"` /
+`"PENALTY_DISPUTE"`) — see ADR-0029; no dedicated dispute command exists
+in this domain either. SearchSupportCases (admin read, Admin Web §4.14,
+2026-08-26) added — an admin HTTP surface over
+CreateSupportCase/ResolveSupportCase/search now exists (AssignSupportCase
+still has no HTTP route: no source document names it as an Admin Web
+screen).
+
 21.4 Allowed AI Tools
 
 Examples:
@@ -1053,6 +1303,8 @@ SubmitInstallationProof
 VerifyAdvertisement
 CalculatePayout
 SettlePayout
+PauseCampaign / ResumeCampaign / EndCampaign (ADR-0046, 2026-08-26,
+  implemented)
 
 22.4 Current Payout
 
@@ -1061,7 +1313,49 @@ SettlePayout
 
 Driver payout enters Wallet as a credit.
 
+Implementation status: the domain/service/repository layer
+(CreateCampaign through SettlePayout, plus the Pause/Resume/End trio)
+is IMPLEMENTED and tested (ADR-0018, 2026-08-24; Pause/Resume/End
+added by ADR-0046, 2026-08-26). ADR-0018 originally built no HTTP
+router because no endpoint shape was documented anywhere (Item 2, a
+§0.3 stop condition); ADR-0046 resolves that with a full admin HTTP
+surface, now IMPLEMENTED — campaign management including the new
+PAUSED/ENDED lifecycle, driver assignment, installation-proof review,
+approve/reject (the existing manual `VerifyAdvertisement`, not a live
+Admoto integration — ADR-0018 Item 3 stays deferred), and
+payout/settlement monitoring. The 80/20 split above is unchanged.
+
 23. Admin Domain
+
+Implementation status (ADR-0040, BR-126/BR-127, 2026-08-26): Admin
+Management and the permission model are IMPLEMENTED — one Super Admin
+level plus granular per-module permissions on employee ADMIN accounts,
+resolving business-rules.md §43's "Admin roles"/"Permission hierarchy"
+TBD markers. See §23.4 below. Of the capabilities §23.2 lists,
+Customer review, Driver/Vehicle review (including search/list, not just
+detail-by-id, and Suspend/Reactivate Driver), Ride monitoring, Wallet
+review (including transaction history), Penalty review, Promotion
+review (the Offers/Coupons Campaign CRUD, ADR-0041), Fare Management
+(ADR-0042), Safety review, and Support review are implemented (Phase
+2/16, ADR-0009/ADR-0022/ADR-0023/ADR-0040/ADR-0041/ADR-0042,
+2026-08-26); Fraud investigation and Payment review remain
+undocumented API contracts — see docs/15-admin-web/
+admin-web-implementation-plan.md for the full per-module gap list.
+
+Approved, design-only as of 2026-08-26 (owner decision batch,
+implementation deliberately deferred to a later task, then most of it
+resumed the same day, and the remainder resumed on 2026-08-28, under a
+broader authorization): Driver Strike History (a read surface over
+`penalty.strikes`, §26.2 — no new domain command), and Coupon/Campaign
+CSV bulk customer targeting (ADR-0041 §9). Referral Reward
+Configuration (ADR-0043, now IMPLEMENTED — see §16.2/§16.3),
+Notification Template Management (ADR-0044, now IMPLEMENTED — see §20
+above), Platform Fee Management (ADR-0045, now IMPLEMENTED — see §11.4
+above), the Advertisement admin surface (ADR-0046, now IMPLEMENTED —
+see §22.4 above), Reports/Analytics MVP (ADR-0047, now IMPLEMENTED —
+new capability for this domain, §23.2 never listed it before now), and
+Settings MVP (ADR-0048, now IMPLEMENTED — see §23.2 below) are
+recorded under their own domains (§16, §20, §11, §22, §23.2).
 
 23.1 Responsibility
 
@@ -1111,6 +1405,11 @@ Account restriction
 
 Support escalation
 
+Reports / Analytics (ADR-0047, 2026-08-26, implemented — added to
+this list by the owner's decision batch; not present before)
+
+Settings (ADR-0048, 2026-08-28, implemented — same)
+
 23.3 Admin Audit
 
 Every administrative action must record:
@@ -1124,6 +1423,30 @@ before_state
 after_state
 timestamp
 request_id
+
+23.4 Admin Permission Model (ADR-0040, BR-126/BR-127)
+
+One Super Admin level, controlled by the core team, provisioned only
+out-of-band (`scripts/provision_admin.py`, never a public endpoint —
+BR-127). A Super Admin creates employee ADMIN accounts and grants each
+one VIEW or MANAGE access per module (database-design.md §33.3); no
+fixed role set (no separate SAFETY_ADMIN/FINANCE_ADMIN-as-account-types
+— security.md §7's earlier example list is superseded). Permission
+changes are enforced server-side on every request, not only reflected
+in the Admin Web's own navigation. Admin Management and Settings module
+access is never grantable to an employee admin, only ever implicit for
+a Super Admin.
+
+Commands (implemented, `modules.admin.service.AdminService`):
+
+CreateEmployeeAdmin
+ListAdmins
+GetAdmin
+UpdateAdminPermissions
+DisableAdmin
+EnableAdmin
+SearchAuditLogs (2026-08-26 — read-only; §23.3's audit fields were
+  written from the start, but nothing read them back until now)
 
 24. Cross-Domain Access Rules
 
@@ -1359,7 +1682,10 @@ Parking charge added to fare
  ↓
 Customer confirmation if required
  ↓
-Payment Domain
+Ride Domain (updated fare payable to the driver — corrected, ADR-0025,
+2026-08-25: not the Payment Domain, since the parking charge is owed to
+the driver directly, the same as the rest of the fare, not collected by
+VISTAAR)
 
 Verification does not directly change the customer's payable amount.
 
@@ -1373,7 +1699,13 @@ Penalty Domain determines charge/strike
  ↓
 Wallet Domain settles driver penalty
  OR
-Customer charge becomes outstanding
+Customer charge becomes outstanding (detailed by ADR-0026, 2026-08-26,
+settlement mechanism updated by ADR-0066, 2026-09-03 — surfaced AND
+attached, not just displayed, at the customer's next ride booking;
+settled by the customer paying the Sarthi directly, combined with the
+ride fare, with VISTAAR recovering its own share through the Wallet
+Domain at that ride's completion — the opposite of this bullet's
+original "never through the Wallet Domain or the driver")
  ↓
 Promotion Domain restores/consumes promotion where applicable
  ↓
@@ -1401,7 +1733,15 @@ Customer outstanding charge
  ↓
 Notification
 
-32. Customer Online Payment Flow
+32. Customer Online Payment Flow (SUPERSEDED — ADR-0025, 2026-08-25)
+
+No VISTAAR-collected online payment exists for the ride fare. Ride
+CLOSED (state-machines.md §10) does not depend on any VISTAAR payment
+confirmation — it was never actually gated on this flow in
+state-machines.md's own authoritative CLOSED entry conditions, but this
+flow's last step below wrongly implied it was.
+
+As originally written (superseded):
 
 Customer
  ↓
@@ -1421,7 +1761,18 @@ PaymentConfirmed
  ↓
 Ride may move to CLOSED
 
-33. Offline Payment Flow
+33. Offline Payment Flow (SUPERSEDED — ADR-0025, 2026-08-25)
+
+The correct flow has no VISTAAR settlement step — the platform fee was
+already debited from the driver's wallet at ride acceptance (§12,
+technical-architecture.md §18):
+
+Ride complete
+ ↓
+Customer pays driver directly (cash or UPI, BR-035) — no domain
+involvement
+
+As originally written (superseded):
 
 Ride complete
  ↓
@@ -1757,7 +2108,9 @@ RideRequested
 RideAccepted
 RideArrived
 RideStarted
-RidePickupChanged
+RidePickupChanged (REMOVED, ADR-0056, 2026-08-31 — no driver-decision/
+confirmation step exists for pickup change anymore to publish this
+event from)
 RideDestinationChanged
 RideCompleted
 RideCancelled
@@ -1898,7 +2251,8 @@ Final service deployment boundaries.
 
 Whether Go and Node domains are split into separate deployables.
 
-Exact payment gateway.
+Exact payment gateway (narrowed — ADR-0025, 2026-08-25: only for driver
+wallet recharge; no customer-facing ride-fare gateway is needed).
 
 Exact payout/settlement provider.
 

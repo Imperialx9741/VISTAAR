@@ -1,0 +1,104 @@
+.sidebar {
+  background: var(--vistaar-deep-green);
+  color: var(--sidebar-text);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 20px 0 24px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 20px 20px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.brandMark {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  background: var(--vistaar-gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  color: var(--vistaar-deep-green);
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+.brandName {
+  color: #fff;
+  font-weight: 650;
+  font-size: 15px;
+  letter-spacing: 0.01em;
+}
+
+.brandSub {
+  color: var(--sidebar-text-dim);
+  font-size: 11px;
+  margin-top: 1px;
+}
+
+.groups {
+  padding: 4px 12px;
+}
+
+.navGroup {
+  margin-bottom: 14px;
+}
+
+.navGroupLabel {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sidebar-text-dim);
+  padding: 8px 10px 6px;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13.5px;
+  color: var(--sidebar-text);
+  border-left: 3px solid transparent;
+}
+
+.dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+  flex-shrink: 0;
+}
+
+a.navItem:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.navItemActive {
+  background: rgba(239, 191, 4, 0.12);
+  border-left-color: var(--vistaar-gold);
+  color: #fff;
+  font-weight: 600;
+}
+
+.navItemActive .dot {
+  background: var(--vistaar-gold);
+  opacity: 1;
+}
+
+.navItemDisabled {
+  opacity: 0.45;
+  cursor: default;
+}

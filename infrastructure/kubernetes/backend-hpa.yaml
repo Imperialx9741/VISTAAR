@@ -1,0 +1,26 @@
+# Requires the metrics-server add-on. Unlike the superseded DOKS
+# target (which enabled it by default), EKS does NOT — install it
+# explicitly, either as an EKS add-on (`aws eks create-addon
+# --addon-name metrics-server ...`) or via the upstream manifest
+# (`kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/
+# releases/latest/download/components.yaml`), before this HPA can read
+# any real CPU metrics.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: vistaar-backend
+  namespace: vistaar
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: vistaar-backend
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

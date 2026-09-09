@@ -1,0 +1,15 @@
+# TEMPLATE — not the real file. Copy to android/key.properties (already
+# gitignored — see .gitignore) and fill in real values. Never commit the
+# filled-in file.
+#
+# See docs/16-mobile/android-release-signing.md for the full account of
+# how the real signing keystore was generated and where it lives.
+#
+# PKCS12 keystores (keytool's current default format, and what the real
+# VISTAAR release keystore uses) require storePassword and keyPassword
+# to be the SAME value — keytool itself enforces this and ignores a
+# distinct -keypass if one is given.
+storePassword=REPLACE_ME
+keyPassword=REPLACE_ME
+keyAlias=vistaar-release
+storeFile=/absolute/path/to/vistaar-release-key.jks

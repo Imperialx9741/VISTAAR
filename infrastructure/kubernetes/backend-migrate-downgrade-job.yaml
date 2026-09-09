@@ -1,0 +1,39 @@
+# Manual, incident-time rollback tool — NOT part of the normal deploy
+# sequence (backend-migrate-job.yaml's "upgrade head" Job is what runs on
+# every deploy). This exists because deployment-runbook.md §8.2 names
+# "roll back a bad migration" as a real gap with no pre-built tool for
+# it. Apply this only when deployment-runbook.md §8.2's own decision
+# tree has already been walked — confirm the migration being reverted
+# has a real, tested `downgrade()` (verified for the full chain,
+# 2026-09-03 — see that section's own note) and that no data was written
+# in a shape the older schema can't represent, BEFORE running this
+# against a real database.
+#
+# --revision must be set explicitly (REPLACE_ME_TARGET_REVISION below)
+# to the exact revision to land on — never run this as a bare
+# `downgrade -1` against production without first confirming from
+# `alembic history` which revision that actually resolves to for the
+# database's current state, since "one step back" depends on where it
+# currently is.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Same per-run uniqueness requirement as backend-migrate-job.yaml —
+  # kubectl requires a unique Job name; substitute a real value so a
+  # rerun doesn't collide with AlreadyExists.
+  name: vistaar-backend-migrate-downgrade-REPLACE_ME_RUN_ID
+  namespace: vistaar
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate-downgrade
+          image: REPLACE_ME_REGISTRY/vistaar-backend:REPLACE_ME_TAG
+          command: ["alembic", "downgrade", "REPLACE_ME_TARGET_REVISION"]
+          envFrom:
+            - configMapRef:
+                name: vistaar-backend-config
+            - secretRef:
+                name: vistaar-backend-secret

@@ -1,0 +1,43 @@
+# Kafka runs on its own EC2 instance (ADR-0063 §3, superseding
+# ADR-0035 Decision 1's DigitalOcean Droplet — no fully-managed Kafka
+# is provisioned either, see that ADR for why not AWS MSK yet), not
+# inside the EKS cluster. This ExternalName Service lets
+# backend-configmap.yaml keep referring to
+# "kafka.vistaar.svc.cluster.local:9092" the same way it would for an
+# in-cluster service, without the application needing to know the EC2
+# instance's real private IP. Point REPLACE_ME_KAFKA_INSTANCE_IP at the
+# `kafka_instance_private_ip` Terraform output
+# (infrastructure/terraform/aws/outputs.tf).
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: vistaar
+spec:
+  type: ExternalName
+  externalName: REPLACE_ME_KAFKA_INSTANCE_IP
+---
+# ExternalName doesn't carry a port, so if a client library needs a
+# concrete ClusterIP+port pair instead, use this Endpoints-backed
+# Service form instead (mutually exclusive with the ExternalName one
+# above — pick one).
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-endpoint
+  namespace: vistaar
+spec:
+  ports:
+    - port: 9092
+      targetPort: 9092
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: kafka-endpoint
+  namespace: vistaar
+subsets:
+  - addresses:
+      - ip: REPLACE_ME_KAFKA_INSTANCE_IP
+    ports:
+      - port: 9092

@@ -311,9 +311,23 @@ Payload:
   "started_at": "timestamp"
 }
 
-10.5 ride.pickup_changed
+Notification consumer: IMPLEMENTED (ADR-0038, 2026-08-26) — notifies
+the ride's customer (looked up by `ride_id`, since this payload does
+not carry `customer_id`). Analytics consumer: not implemented.
 
-Payload:
+10.5 ride.pickup_changed — REMOVED (ADR-0056, 2026-08-31)
+
+SUPERSEDED — owner decision, 2026-08-31 (see ADR-0056-pickup-change-
+simplification-hard-threshold.md). Pickup change no longer has a
+driver-decision/customer-confirmation step to fire this event from —
+a ≤threshold change now applies with no request/confirmation ceremony
+at all (same as it always did, ADR-0033 Decision 5), and a >threshold
+change is rejected outright, nothing to confirm. `POST .../pickup-
+change/confirm`, this event's only publisher, was removed. This event
+is never published by any live code path anymore. Kept below as the
+historical record of the original design (ADR-0033, 2026-08-25).
+
+Payload (as originally implemented, before ADR-0056):
 
 {
   "ride_id": "uuid",
@@ -326,19 +340,26 @@ Payload:
 }
 
 NOTE: distance_change_meters and additional_charge above are illustrative
-placeholders showing payload shape only — they are not a worked example and
-must not be used to infer a pickup-change rate. The actual rate is TBD (see
-PRD.md §62 and business-rules.md §43; discussed range ₹10–₹20/km, not
-approved). additional_charge is always the server-calculated value at
-whatever rate is eventually approved.
+placeholders showing payload shape only, not a worked example. RESOLVED
+(ADR-0033, 2026-08-25) — the pickup-change rate is the ride's own base
+per-km fare, not a new flat number (business-rules.md BR-076);
+additional_charge is always the server-calculated value at that rate.
 
-Consumers:
+Consumers (as originally implemented):
 
 Pricing
 Notification
 Analytics
 
 10.6 ride.destination_changed
+
+IMPLEMENTED (ADR-0033 Decision 9, 2026-08-25) — published by
+POST /api/v1/rides/{ride_id}/destination-change/confirm, only for the
+BEYOND_ORIGINAL/DIFFERENT_ROUTE cases (BR-080/081); the WITHIN_ROUTE
+case (BR-079) never fires this event, same "nothing changed, no
+ceremony" reasoning a ≤threshold pickup change gets. Unaffected by
+ADR-0056 (which removed §10.5's ride.pickup_changed entirely, not this
+event).
 
 Payload:
 
@@ -379,6 +400,15 @@ Verification
 Notification
 Analytics
 
+Implementation status (Phase 08, ADR-0030, 2026-08-25): COMPLETE —
+published with this exact payload once both parties confirm
+(`gps_location` = `{"latitude": ..., "longitude": ...}`, the driver's own
+submitted coordinates — ADR-0030 Decision 3). No consumer exists in this
+codebase for any of the four listed (no Payment/Verification domain, no
+notification provider — this producer writes the outbox row regardless,
+same "no real caller, no invented composition" restraint used
+throughout).
+
 10.8 ride.completed
 
 Payload:
@@ -402,6 +432,10 @@ Notification
 Rating
 Analytics
 
+Notification consumer: IMPLEMENTED (ADR-0038, 2026-08-26) — notifies
+the ride's customer (`customer_id`, already in the payload). Payment/
+Promotion/Rating/Analytics consumers: not implemented.
+
 10.9 ride.cancelled
 
 Payload:
@@ -420,6 +454,96 @@ Promotion
 Matching
 Notification
 Analytics
+
+Notification consumer: IMPLEMENTED (ADR-0038, 2026-08-26) — notifies
+whichever party did NOT cancel (looked up by `ride_id`, since this
+payload carries `cancelled_by` as a role, not either party's ID
+directly); skipped when the ride never had a driver assigned yet.
+Penalty/Promotion/Matching/Analytics consumers: not implemented here
+(Penalty's own cancellation-charge composition is a separate, already-
+implemented synchronous path — see modules/ride/router.py's
+`cancel_ride`/`driver_cancel_ride` — not this consumer).
+
+10.10 ride.gps_dispute_opened
+
+Producer:
+
+Ride Service
+
+Consumers:
+
+Notification
+Analytics
+
+Payload:
+
+{
+  "dispute_id": "uuid",
+  "ride_id": "uuid",
+  "gps_verification_id": "uuid",
+  "verification_type": "ARRIVAL",
+  "evidence_deadline": "timestamp"
+}
+
+10.11 ride.gps_dispute_resolved
+
+Producer:
+
+Ride Service
+
+Consumers:
+
+Notification
+Analytics
+
+Payload:
+
+{
+  "dispute_id": "uuid",
+  "ride_id": "uuid",
+  "decision": "APPROVE",
+  "decided_by": "uuid",
+  "decided_at": "timestamp"
+}
+
+Implementation status (§10.10/§10.11, BR-124/BR-125, ADR-0032,
+2026-08-25): COMPLETE. Neither event has a real consumer in this
+codebase (no notification provider is wired to react to these
+specifically, no Analytics domain exists) — both outbox rows are still
+written regardless, same "producer writes independent of whether a
+consumer exists" principle used throughout.
+
+10.12 ride.schedule_promoted (IMPLEMENTED — ADR-0057, 2026-08-31)
+
+Producer:
+
+Ride Service (fired by the scheduled-ride Beat task, not a customer-
+or driver-triggered command)
+
+Consumers:
+
+Notification (a plausible "your ride is now being matched" push once
+push notifications themselves are wired, api-contracts.md §46.3 —
+not built yet either; this event exists so that consumer has something
+real to subscribe to once it does)
+
+Payload:
+
+{
+  "ride_id": "uuid",
+  "promoted_at": "timestamp"
+}
+
+Implementation status: COMPLETE. Fired at SCHEDULED → SEARCHING
+(state-machines.md §3.9) — the moment a scheduled ride's driver
+lock-in window is reached and it re-enters the ordinary matching flow.
+`ride.requested` is still fired at the ride's original SCHEDULED entry
+(same payload shape an immediate ride's own SEARCHING entry already
+uses) — this event is additive, not a replacement. No real consumer
+exists yet (Notification's own push channel is itself not wired,
+api-contracts.md §46.3) — the outbox row is still written regardless,
+same "producer writes independent of whether a consumer exists"
+principle §10.10/§10.11 above already established.
 
 11. Matching Events
 
@@ -599,6 +723,18 @@ Payload:
 }
 
 14. Payment Events
+
+SUPERSEDED IN FULL for the ride fare (ADR-0025, 2026-08-25 — annotated
+2026-09-02, closing the follow-up ADR-0025 §5 itself explicitly flagged
+as still outstanding for this section, same as security.md §27-32).
+VISTAAR never collects the ride fare — none of the six events below are
+ever published for it; `"amount": 130`/`"method": "ONLINE"` in §14.1's
+own payload example describes the rejected combined-collection model.
+These event shapes may still be a reasonable starting point for a
+future driver-wallet-recharge or customer-penalty-collection payment
+flow (both still genuinely TBD, ADR-0013 Item 3 / ADR-0026 §5) — kept
+below for that reason, not deleted, but not currently published by any
+real code path.
 
 14.1 payment.initiated
 
@@ -805,6 +941,10 @@ Payment
 Notification
 Support
 Analytics
+
+Notification consumer: IMPLEMENTED (ADR-0038, 2026-08-26) — notifies
+the penalized user (`user_id`, already in the payload). Payment/
+Support/Analytics consumers: not implemented.
 
 17.2 penalty.strike_recorded
 
@@ -1164,7 +1304,9 @@ DB committed
 BUT
 Kafka event lost
 
-28. Outbox Publisher
+28. Outbox Publisher (IMPLEMENTED — ADR-0071, 2026-09-04, for the retry/
+    DLQ half; the base publish/acknowledge/mark-published flow was
+    already IMPLEMENTED, ADR-0017)
 
 Publisher behavior:
 
@@ -1181,7 +1323,14 @@ If publishing fails:
 Keep event unpublished
 Retry
 
-29. Consumer Idempotency
+29. Consumer Idempotency (IMPLEMENTED — ADR-0071, 2026-09-04)
+
+`shared.processed_events` (exactly the recommended table below) is
+checked/recorded around every `modules/notification/consumer.py`
+handler dispatch — the BEGIN/check/apply/record/COMMIT sequence exactly
+as documented. Previously deferred (ADR-0017 §4) for lack of a real
+consumer to need it; `NotificationConsumer` (ADR-0038) is now that
+consumer.
 
 Consumer transaction:
 
@@ -1210,7 +1359,8 @@ CREATE TABLE shared.processed_events (
     PRIMARY KEY (consumer_name, event_id)
 );
 
-30. Retry Policy
+30. Retry Policy (IMPLEMENTED — ADR-0071, 2026-09-04, for
+    shared.outbox_events / the Outbox Publisher)
 
 Recommended retry sequence:
 
@@ -1222,11 +1372,23 @@ Recommended retry sequence:
 
 Exact timings are configurable.
 
+Implemented as a genuine exponential formula (base * multiplier^(attempt-1),
+capped at max — `shared/outbox_publisher.py::next_attempt_delay_seconds()`,
+`core/config.py`'s `EVENT_RETRY_*` settings), not this exact irregular
+sequence reproduced number-for-number — "exact timings are configurable"
+above explicitly allows that. The default configuration (base=5s,
+multiplier=5, cap=30min, max attempts=5) produces 5s/25s/~2m/~10m/30m
+(capped), closely tracking this same recommended progression. Does not
+(yet) apply to `modules/notification/consumer.py`'s own message-handling
+failures — see that module's `consume_forever()` docstring and ADR-0071
+§5 for why that was scoped out deliberately.
+
 After maximum retries:
 
 Dead Letter Topic
 
-31. Dead Letter Topics
+31. Dead Letter Topics (IMPLEMENTED — ADR-0071, 2026-09-04, for the
+    Outbox Publisher)
 
 Naming:
 
@@ -1248,9 +1410,33 @@ attempt count
 first failure
 last failure
 
-32. Poison Message Handling
+All six preserved exactly as documented — the DLQ message carries the
+original envelope untouched plus a `dlq_metadata` block (`original_topic`,
+`attempt_count`, `first_failure_at`, `last_failure_at`, `last_error`
+implicitly via the row's own `last_error` column, `failed_by`) — see
+ADR-0071 §4 for the exact shape and
+tests/test_outbox_publisher.py::test_event_is_dead_lettered_after_max_attempts_and_preserves_metadata
+for the proof.
+
+32. Poison Message Handling (PARTIAL — applies to the Outbox Publisher,
+    ADR-0071, 2026-09-04; NOT applied to modules/notification/consumer.py)
 
 A malformed or permanently invalid event must not block the Kafka partition indefinitely.
+
+The Outbox Publisher (§28/§30/§31) follows exactly this flow for a
+publish that keeps failing. `NotificationConsumer` does not: a message
+whose handler keeps raising has no retry-policy/DLQ/alert path of its
+own today — it is simply left with its Kafka offset uncommitted (ADR-
+0038 Decision 2) and redelivered whenever this consumer group next
+starts consuming that partition (a restart or rebalance), with no
+attempt cap and no DLQ. Flagged here deliberately (ADR-0071 §5), not
+silently left unmentioned — building this for the consumer side would
+need its own persistent per-message retry-state store (Kafka itself has
+no notion of "retry this one message later with backoff"), a
+meaningfully larger addition than reusing the Outbox Publisher's
+existing row-based mechanism, and was judged out of scope for the
+specific "2 remaining" items (Event retry, Dead-letter handling) this
+task closed.
 
 Flow:
 
@@ -1479,7 +1665,18 @@ Different domains may emit events independently.
 
 Consumers must not assume that unrelated topics are globally ordered.
 
-44. Pickup Change Event Flow
+44. Pickup Change Event Flow — SUPERSEDED (ADR-0056, 2026-08-31)
+
+Current flow (ADR-0056): no event is published for pickup change at
+all, either branch.
+
+Customer requests pickup change
+        ↓
+≤100m: applied immediately (no event)
+or
+>100m: rejected outright (PICKUP_CHANGE_TOO_FAR, no event)
+
+As originally implemented (ADR-0033, 2026-08-25 — superseded):
 
 Customer requests pickup change
         ↓
@@ -1748,7 +1945,7 @@ Ride
 
 Notification
 
-ride.pickup_changed
+ride.pickup_changed — REMOVED (ADR-0056, 2026-08-31), never published
 
 Ride
 

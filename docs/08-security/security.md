@@ -177,14 +177,18 @@ Bound to the appropriate session/device context
 
 7. Role-Based Access Control
 
-Supported roles include:
+Supported account types:
 
 CUSTOMER
 DRIVER
 ADMIN
-SAFETY_ADMIN
-FINANCE_ADMIN
-SUPER_ADMIN
+
+Superseded (BR-126, 2026-08-26): the fixed SAFETY_ADMIN/FINANCE_ADMIN/
+SUPER_ADMIN role list this section originally sketched as an example is
+not how admin authorization actually works — there is one Super Admin
+level plus granular, per-module permissions on employee ADMIN accounts,
+not a fixed role enum. See ADR-0040 for the permission model and
+`admin.permissions`' actual shape.
 
 Authorization is enforced server-side.
 
@@ -578,6 +582,17 @@ The recovery must be recorded as a separate ledger transaction.
 
 27. Payment Gateway Security
 
+PARTIALLY SUPERSEDED (ADR-0025/ADR-0026, 2026-08-25/26 — annotated
+2026-09-02, closing the follow-up ADR-0025 §5 itself explicitly flagged
+as still outstanding for this section). VISTAAR does not collect the
+customer's ride fare at all — there is no ride-fare gateway to secure.
+The controls below remain real requirements, but only for whichever
+gateway is eventually chosen for (a) driver wallet recharge (ADR-0013
+Item 3, still TBD) and (b) customer outstanding-penalty collection
+(ADR-0026, still TBD, a separate decision from (a)) — not for the ride
+fare, which stays permanently outside any gateway (peer-to-peer,
+cash/UPI, ADR-0025).
+
 Payment processing must use a trusted payment provider.
 
 VISTAAR must verify:
@@ -594,6 +609,11 @@ A client-side success screen is not proof of payment.
 Only a verified server-side gateway response can establish payment success.
 
 28. Payment Webhook Security
+
+PARTIALLY SUPERSEDED (ADR-0025/ADR-0026, annotated 2026-09-02) — same
+scope correction as §27: relevant only to a future driver-recharge or
+customer-penalty-collection webhook, never a ride-fare webhook (none
+will ever exist).
 
 Webhook endpoint must verify:
 
@@ -613,6 +633,24 @@ Settlement
 Refund
 
 29. Online Payment Flow
+
+SUPERSEDED IN FULL (ADR-0025, 2026-08-25 — annotated 2026-09-02; penalty
+settlement mechanism further updated 2026-09-03, ADR-0066). This flow
+describes VISTAAR collecting the combined "ride fare + VISTAAR charges"
+from the customer — the model ADR-0025 explicitly rejected. The real
+flow: the customer pays the Sarthi the ride fare AND any outstanding
+VISTAAR penalty directly, combined into one payment (cash/UPI, P2P, no
+VISTAAR involvement in the payment itself — ADR-0066, 2026-09-03,
+extending ADR-0025's settlement mode to cover the penalty too);
+api-contracts.md §12's `outstanding_penalty`/`total_payable` durably
+attaches that penalty to the ride at booking, not just displays it, and
+§28's `customer_penalty_settled` marks it settled at completion.
+VISTAAR recovers its own penalty share separately, server-side, by
+debiting the Sarthi's wallet at that same moment
+(`TransactionType.CASH_SETTLEMENT`) — never from the customer, and with
+no customer-facing payment surface at all; the collection-mechanism
+question ADR-0026 §5 originally left open is resolved by ADR-0066, not
+by picking a provider but by determining none is needed.
 
 Customer
    ↓
@@ -635,7 +673,16 @@ The customer must see additional charges before payment.
 
 30. Offline Payment Security
 
-Example:
+CORRECTED (ADR-0025, annotated 2026-09-02) — the "VISTAAR charge"
+component below no longer exists in the expected cash amount. The
+driver's platform fee is already debited from their wallet at ride
+acceptance (BR-011, unaffected by this correction); nothing about the
+customer's cash payment settles it. The example below should now read
+"Expected cash = ₹100" (ride fare only) — left as originally written,
+struck through only by this note, to preserve the audit trail rather
+than silently editing the worked numbers:
+
+Example (ORIGINAL, now inaccurate — see correction above):
 
 Ride fare = ₹100
 VISTAAR charge = ₹30
@@ -655,6 +702,14 @@ The client cannot override the expected amount.
 
 31. Driver Payment Confirmation
 
+CORRECTED (ADR-0025, annotated 2026-09-02) — this control's own logic
+stays valid; only "expected amount" changes meaning, from "ride fare +
+VISTAAR charge" to "ride fare only" (no VISTAAR settlement component
+exists to include). Not yet implemented anywhere in the real backend as
+of this annotation — a driver fare-confirmation endpoint matching this
+corrected shape is real, scoped future work, not something this
+annotation builds.
+
 The confirmation endpoint must compare:
 
 Driver confirmed amount
@@ -668,6 +723,12 @@ FULL_PAYMENT_NOT_RECEIVED
 No VISTAAR settlement should be finalized through the full-confirmation path.
 
 32. Payment Dispute Rule
+
+CORRECTED (ADR-0025, annotated 2026-09-02) — "Payment" here means the
+ride-fare confirmation described in the corrected §31 above, not a
+VISTAAR-tracked payment record (none exists). BR-121 already documents
+that ride-fare disputes go through the general support/admin process,
+consistent with this section's own dispute-review principle.
 
 After driver confirms the full payment:
 
@@ -1133,9 +1194,21 @@ Require MFA for privileged accounts
 
 61. Admin MFA
 
+IMPLEMENTED (ADR-0051, 2026-08-28) — TOTP (RFC 6238), self-service/
+opt-in enrollment via `POST /api/v1/auth/mfa/enroll`/`confirm`/`verify`/
+`disable` (api-contracts.md §7.3). A generic identity-layer capability,
+not gated to a specific admin tier — the fixed SUPER_ADMIN/
+FINANCE_ADMIN/SAFETY_ADMIN role list below predates and is superseded by
+ADR-0040's real permission model (one Super Admin level + granular
+per-module permissions, no fixed role set — see security.md §7's own
+correction). Enrollment is not mandatory for any admin; making it
+mandatory for some or all admins remains an open policy question ADR-
+0051 does not resolve.
+
 Privileged administrative accounts should use MFA.
 
-Especially:
+Especially (original, now-superseded example list — see the
+IMPLEMENTED note above):
 
 SUPER_ADMIN
 FINANCE_ADMIN
@@ -1176,6 +1249,16 @@ Frame restrictions
 
 Exact policy depends on the deployed frontend architecture.
 
+Implementation status (ADR-0036, 2026-08-25): IMPLEMENTED —
+`shared/security_headers.py`'s `SecurityHeadersMiddleware`, registered
+in `main.py`, applies all five headers to every response except the
+interactive-docs paths (`/docs`, `/redoc`, `/openapi.json`), which are
+exempt from Content-Security-Policy only (FastAPI's built-in Swagger/
+ReDoc pages load their own JS/CSS from a CDN and would break under the
+strict `default-src 'none'` policy applied everywhere else) — see the
+ADR for why CSP specifically needed a judgment call while the other
+four headers did not.
+
 65. Logging Security
 
 Never log:
@@ -1200,6 +1283,16 @@ Error code
 where operationally necessary.
 
 66. Monitoring
+
+IMPLEMENTED (ADR-0053, 2026-08-28) — the underlying infrastructure only:
+Sentry (application error tracking, `SENTRY_DSN` empty/disabled by
+default until a real account exists), Prometheus (`GET /metrics`, real
+and functional immediately, no credential needed), and self-hosted
+Grafana (dashboards over Prometheus). None of the specific business-
+signal detections listed below are wired as alerts yet — no source
+document specifies the thresholds/routing that would require (ADR-0053
+Decision 5), so none were invented; this ADR built the pipes, not the
+alert rules.
 
 Security monitoring should detect:
 
@@ -1560,6 +1653,14 @@ Object-level authorization is mandatory.
 
 Production secrets never live in source code.
 
+No admin API response ever includes a provider credential, password,
+cloud secret, database credential, or private key — added 2026-08-26
+as an explicit invariant (owner decision, ADR-0044 §4/ADR-0048 §5:
+Notification Templates and Settings) rather than left implicit; the
+generic `admin.settings` key-value table and `notification.templates`
+content columns are the two places this codebase now has where a
+careless future addition could otherwise leak one.
+
 Invalid state transitions are rejected.
 
 Security failures fail closed where practical.
@@ -1580,7 +1681,9 @@ Exact fraud thresholds
 Exact backup retention
 Exact Kafka retention
 Exact admin session timeout
-Exact MFA provider
+Exact MFA provider — RESOLVED (ADR-0051, 2026-08-28): TOTP (RFC 6238,
+  via pyotp), no external provider — a standard authenticator app
+  implements the same RFC client-side
 Exact payment gateway
 Exact secret manager
 
@@ -1591,3 +1694,17 @@ These should be finalized during infrastructure/security implementation without 
 Version: 1.0
 Status: Draft
 Derived from: PRD, Business Rules, Technical Architecture, Domain Design, Database Design, API Contracts, Event Contracts, State Machines, and finalized business decisions.
+
+91. Security Review History
+
+A code-level review pass against this document's controls was performed
+2026-09-02 — see `docs/08-security/security-review-2026-09-02.md`. It
+found and fixed two real issues (a JWT_SECRET placeholder that could
+silently reach production; Sentry not explicitly configured to avoid
+capturing Authorization/Cookie headers) and one open, unfixed gap
+requiring a decision (§20's rate limiting exists only for OTP request/
+verify, not the ~13 other endpoint categories this section lists). That
+review covered a targeted subset of this document's 90 sections, not all
+of them — see its own §6 for exactly what a further pass still needs to
+check. This document's own Status stays Draft: a review pass is not the
+same as the "security approved" production-readiness gate.

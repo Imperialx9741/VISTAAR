@@ -651,19 +651,17 @@ Changed-pickup PASS:
 No ₹30 penalty
 No strike
 
-36. Penalty Expiry Tests
+36. Penalty Expiry Tests (superseded — customer penalties never expire)
 
-Penalty expiry:
-
-30 days
-
-Test:
-
-Before expiry
-At expiry
-After expiry
-
-No duplicate expiration events.
+Corrected 2026-09-04 (BR-049, ADR-0069, owner decision): customer
+penalties do not expire. `expires_at`/`PenaltyStatus.EXPIRED` have been
+removed from the schema and codebase; there is no expiry test to write
+and no expiry enforcement job to test. Covered instead by
+`tests/test_penalty_service.py::test_customer_penalties_never_expire`,
+which asserts an OUTSTANDING penalty stays OUTSTANDING regardless of
+elapsed time. This is unrelated to Sarthi cancellation-penalty debt
+(`wallet.wallets.outstanding_debt`, ADR-0062), which never had an
+expiry concept and is untouched by this correction.
 
 37. Payment State Tests
 
@@ -1159,6 +1157,21 @@ Kafka unavailable + outbox retained
 Kafka returns success + event marked published
 Publisher restarts + no lost events
 
+Implemented (ADR-0071, 2026-09-04): tests/test_shared_outbox.py covers
+the first two (transaction-scoped insert/rollback). tests/
+test_outbox_publisher.py covers "Kafka returns success -> published"
+(pre-existing) and the retry/backoff half of "Kafka unavailable ->
+outbox retained" — a failed publish is retried with exponential
+backoff, never lost, and is proven not to be silently discarded even
+when the eventual DLQ publish itself fails
+(test_dlq_publish_failure_leaves_the_row_pending_not_discarded).
+"Publisher restarts + no lost events" specifically (a genuine process
+restart, not just a failed send) is not separately tested — the
+persistent, DB-backed retry state (unaffected by an in-process
+restart, since it lives in shared.outbox_events, not memory) makes this
+the same property as "outbox retained" above by construction, not a
+distinct code path needing its own test.
+
 70. Dead-Letter Queue Tests
 
 Force permanent consumer failure.
@@ -1172,6 +1185,23 @@ Retry sequence
 → Alert generated
 
 Replay must be possible after correction.
+
+Implemented (ADR-0071, 2026-09-04), for the Outbox Publisher: tests/
+test_outbox_publisher.py::test_event_is_dead_lettered_after_max_attempts_and_preserves_metadata
+proves the full sequence (attempt_count reaches the configured
+maximum -> DLQ publish to vistaar.dlq.<domain> -> original event and
+error/attempt/timestamp metadata all preserved on the DLQ message).
+"Alert generated" is not implemented — no alerting integration exists
+for this (or any other) condition in this codebase yet; a
+DEAD_LETTERED row is queryable (shared.outbox_events, status column)
+but nothing pages/notifies on it. "Replay must be possible after
+correction" is architecturally possible (the row and its full payload
+survive dead-lettering; a manual UPDATE back to status='PENDING',
+attempt_count=0 would re-attempt it) but no replay tooling/endpoint is
+built. Neither gap applies to modules/notification/consumer.py's own
+message-handling failures — see that module's own docstring and
+event-contracts.md §32 for why persistent per-message consumer retry/
+DLQ was scoped out of ADR-0071 (ADR-0071 §5).
 
 71. Kafka Ordering Tests
 
@@ -1751,6 +1781,15 @@ Database constraints tested
 [ ] Monitoring configured
 [ ] Alerts configured
 [ ] Rollback plan ready
+[ ] Real-device Android FCM push delivery verified end-to-end (owner
+    decision, 2026-09-03 — recorded as a production-readiness/E2E task,
+    not completed yet: backend Firebase authentication and the FCM API
+    submission call are both verified against live Google/FCM servers
+    with a real service-account credential — ADR-0052 §9 — but nothing
+    has confirmed an actual push notification arriving on a real
+    Android device with the VISTAAR app installed and a real FCM
+    registration token. Needs a real device, not something a
+    backend-only environment can exercise.)
 
 106. Critical Business Acceptance Checklist
 
@@ -1789,7 +1828,7 @@ that ARE approved in business-rules.md.
 [ ] Driver remains online after reject/expiry
 [ ] Driver cancellation = ₹30 + strike
 [ ] Customer cancellation rules enforced
-[ ] Penalty expiry = 30 days
+[x] Customer penalty never expires (corrected 2026-09-04, BR-049/ADR-0069 — supersedes the original "30 days" checklist item; verified by test_customer_penalties_never_expire)
 [ ] Promotion expiry = 30 days
 [ ] Offline payment requires full payment confirmation
 [ ] Wallet recovers outstanding amount on recharge
@@ -1819,6 +1858,31 @@ No lost outbox event
 
 Version: 1.0
 Status: Draft
+
+109. E2E Test Pass History
+
+A real E2E journey test pass (§4.4 — customer/driver/admin journeys
+against real HTTP + real Postgres + real Redis, not a duplicate of the
+existing per-endpoint integration suite) was run 2026-09-02 — see
+`docs/10-testing/e2e-findings-2026-09-02.md` for the full write-up. It
+found one real, unfixed blocker (a driver with an insufficient wallet
+balance cannot cancel a ride at all — worse than §84's own documented
+"partial debit, track as outstanding" behavior) and confirmed that §85/
+§86 (Pickup Change PASS/PROCEED) describe a design ADR-0056 already
+replaced — those two sections are stale, not yet corrected in this
+document. This document's own Status stays Draft: one journey-test pass
+is not the same as "E2E tests passing" (§105/§106's own unchecked
+boxes).
+
+110. Load Testing
+
+A load-testing plan for the owner's named 100,000-concurrent-user target
+was written 2026-09-03 — see
+`docs/10-testing/load-testing-plan-2026-09-03.md`. It is a plan only:
+test scenarios, methodology, and a worked traffic-rate example grounded
+in the actual shipped mobile client's polling intervals, not a run
+benchmark and not a capacity claim — executing it needs a real staging
+AWS environment this task has no credentials for.
 
 Derived from:
 

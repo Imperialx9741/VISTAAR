@@ -44,38 +44,27 @@ jobs:
       - name: Run Unit Tests
         run: pytest
 
-  customer-mobile-checks:
-    name: Customer Mobile Checks
+      - name: Audit Dependencies for Known Vulnerabilities
+        # ADR-0036. Resolves and audits only [project].dependencies (the
+        # real production dependency set) against the PyPA Advisory
+        # Database via pip-audit — deliberately NOT a plain `pip-audit`
+        # over the whole environment, which also flags the CI runner's
+        # own `pip`/`setuptools`/`uv` tooling versions, none of which
+        # ship in the deployed image.
+        run: |
+          uv pip install --system pip-audit
+          uv pip compile pyproject.toml -o /tmp/vistaar-requirements.txt
+          pip-audit -r /tmp/vistaar-requirements.txt
+
+  mobile-checks:
+    name: Mobile Checks
+    # Unified Customer + VISTAAR Rider app (ADR-0027, 2026-08-26) —
+    # replaces the former separate customer-mobile-checks/
+    # driver-mobile-checks jobs.
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/customer-mobile
-
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-          cache: true
-
-      - name: Install Dependencies
-        run: flutter pub get
-
-      - name: Run Static Analysis
-        run: flutter analyze
-
-      - name: Run Tests
-        run: flutter test
-
-  driver-mobile-checks:
-    name: Driver Mobile Checks
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/driver-mobile
+        working-directory: apps/mobile
 
     steps:
       - name: Checkout Repository
@@ -120,5 +109,80 @@ jobs:
       - name: Run Linter
         run: npm run lint
 
+      - name: Run Tests
+        run: npm run test
+
       - name: Run Build
         run: npm run build
+
+      - name: Audit Dependencies for Known Vulnerabilities
+        # security.md §73/§75 — Admin Web's own dependency scan; the
+        # backend already had one (pip-audit above), Admin Web didn't.
+        # --audit-level=high: fails the build on high/critical
+        # advisories, not on every low-severity transitive finding (npm
+        # audit's own documented level filter) — a starting point, not
+        # a tuned production policy.
+        run: npm audit --audit-level=high
+
+  secret-scanning:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    # security.md §75 ("CI/CD must include: Secret scanning") — did not
+    # exist anywhere in this workflow before (security-review-
+    # 2026-09-02.md §6's own "not yet covered" list). Scans the full
+    # git history of the diff being checked, not just the working tree,
+    # so a secret committed and later removed still gets caught.
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # gitleaks/gitleaks-action's newer major versions require a
+          # GITLEAKS_LICENSE secret for some usage tiers (org-owned
+          # private repos) — not verified against this specific repo's
+          # plan/visibility in this environment (no way to run GitHub
+          # Actions here). If the job fails on a missing-license error
+          # rather than an actual finding, that's what to check first;
+          # see https://github.com/gitleaks/gitleaks-action for current
+          # licensing terms.
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  container-scan:
+    name: Container Image Scan
+    runs-on: ubuntu-latest
+    # security.md §74/§75 ("Scan images" / "Container scanning where
+    # applicable") — did not exist before (security-review-2026-09-02.md
+    # §6's own "not yet covered" list). Scans the real production image
+    # this repo actually ships (apps/backend/Dockerfile), not a generic
+    # base-image scan.
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Build Backend Image
+        run: docker build -t vistaar-backend:ci apps/backend
+
+      - name: Trivy Vulnerability Scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: 'vistaar-backend:ci'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+          # Verified for real against this exact image (`docker build` +
+          # `trivy image`, this pass, 2026-09-03): without this, the job
+          # fails immediately and permanently on 18 CRITICAL/HIGH
+          # findings in `python:3.12-slim`'s own OS packages (gzip,
+          # perl-base, libsqlite3-0, etc.) — none of which have a fixed
+          # version published yet (Trivy's own "Fixed Version" column is
+          # empty for all 18), so failing on them buys nothing but
+          # permanently red CI. With ignore-unfixed, the same real scan
+          # against the same image found zero findings — this still
+          # catches anything genuinely fixable, including in the app's
+          # own Python dependencies, the moment a fix exists.
+          ignore-unfixed: true

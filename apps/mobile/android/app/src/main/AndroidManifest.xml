@@ -1,0 +1,96 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Location permission (owner decision, 2026-08-29 — see
+         docs/16-mobile/mobile-app-implementation-plan.md §6.1). Requested
+         right after role selection, "when in use" only. ACCESS_BACKGROUND_
+         LOCATION is a distinct, separately-requestable Android 10+
+         permission, deliberately NOT declared here — genuine background
+         (post-Activity-destruction) location was never built, and the
+         foreground-service location tracking that IS built (below) relies
+         on Android's documented foreground-service exception instead,
+         which needs only "while in use" access. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <!-- Sarthi (driver) location sharing while online (Phase 3, added
+         2026-09-04) — geolocator_android's own GeolocatorLocationService
+         (declared in that plugin's own AAR manifest, not repeated here)
+         runs as a real Android foreground service with a persistent
+         notification while a Sarthi is online
+         (sarthi_home_screen.dart::_buildLocationSettings()).
+         FOREGROUND_SERVICE_LOCATION is the Android 14+ (API 34)
+         requirement for a location-typed foreground service specifically;
+         FOREGROUND_SERVICE is the general prerequisite every foreground
+         service on Android 9+ needs. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+    <!-- Push notifications (ADR-0052) — the runtime notification
+         permission on Android 13+ (POST_NOTIFICATIONS). firebase_
+         messaging's own AAR manifest already merges this in
+         automatically; declared explicitly anyway so this manifest
+         stays self-documenting, matching every other permission here.
+         Requested via FirebaseMessaging.requestPermission()
+         (PushNotificationManager.start()), not a separate prompt. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Native Contacts picker for Book for Someone Else (owner-approved
+         2026-09-01 — see docs/16-mobile/mobile-app-implementation-plan.md
+         §6.2). flutter_contacts' own AAR manifest declares no permission
+         at all (verified against the plugin's own AndroidManifest.xml),
+         so this must be declared explicitly, unlike POST_NOTIFICATIONS
+         above. READ_CONTACTS only — this app never creates, edits, or
+         deletes a contact, so WRITE_CONTACTS is deliberately omitted.
+         Requested contextually via ContactsApi.requestPermission(), the
+         first time the User taps "Choose from Contacts" — never at app
+         launch. -->
+    <uses-permission android:name="android.permission.READ_CONTACTS"/>
+    <!-- Camera/gallery capture for document and GPS-dispute evidence
+         uploads (2026-09-04, EvidenceUploadService) — deliberately no
+         permission declared here. image_picker_android's own AAR
+         manifest (verified directly) declares no CAMERA or storage
+         permission at all: it hands off to the system camera/gallery
+         app via intent (ACTION_IMAGE_CAPTURE/ACTION_PICK), which
+         manages its own permission, not this app's. On Android 13+ the
+         gallery path uses the system Photo Picker, which needs no
+         runtime permission at all either. -->
+    <application
+        android:label="vistaar_mobile"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+    </queries>
+</manifest>

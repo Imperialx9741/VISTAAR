@@ -1,0 +1,74 @@
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 28px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.title {
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.subtitle {
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  margin-top: 2px;
+}
+
+.adminChip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 13px;
+}
+
+.avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--vistaar-deep-green);
+  color: var(--vistaar-gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.roleLabel {
+  font-weight: 550;
+}
+
+.sessionButton {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: none;
+  border: none;
+  border-left: 1px solid var(--border);
+  padding-left: 10px;
+  margin-left: 2px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.sessionButton:hover {
+  color: var(--ink);
+}
+
+.sessionButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

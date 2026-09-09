@@ -106,7 +106,12 @@ below are superseded by docs/14-decisions/ADR-0001-backend-and-client-technology
 backend as a single Python/FastAPI application (no separate BFF service).
 The diagram shape (domain APIs behind an API layer, backed by
 PostgreSQL/PostGIS, Redis, and Kafka) is retained as-is since it was not
-part of the reconciled discrepancy.
+part of the reconciled discrepancy. FURTHER SUPERSEDED by
+docs/14-decisions/ADR-0027-unified-mobile-app-role-based-login.md
+(2026-08-26): the separate "Customers" and "Driver Flutter" clients below
+are consolidated into one Flutter app (`apps/mobile/`) with role selection
+at login (Customer / VISTAAR Rider) — see the corrected diagram beneath
+the original.
 
                          ┌─────────────────────┐
                          │     Customers       │
@@ -147,6 +152,22 @@ part of the reconciled discrepancy.
                          └──────────┬──────────┘
                                     │ HTTPS/WSS
                                     └──────────► API / BFF
+
+Corrected (ADR-0027, 2026-08-26):
+
+                         ┌───────────────────────────┐
+                         │   VISTAAR Mobile (Flutter) │
+                         │  Role selected at login:   │
+                         │  Customer  |  VISTAAR Rider│
+                         └──────────────┬─────────────┘
+                                        │ HTTPS/WSS
+                                        │
+                              ┌─────────▼─────────┐
+                              │   FastAPI backend  │
+                              └────────────────────┘
+
+Admin Web (Next.js, unaffected by ADR-0027) calls the same FastAPI
+backend separately — not shown above, see §6's stack table.
 
 4. Logical Domains
 
@@ -333,21 +354,37 @@ Wallet is the financial source of truth for driver-side wallet accounting.
 
 5.9 Payment Domain
 
-Owns:
+RECONCILED (ADR-0025, 2026-08-25 — approved P2P Payment Model): the
+"Owns" list below described collecting the ride fare from the customer.
+VISTAAR never collects the ride fare (the customer pays the driver
+directly); the platform fee is charged only to the driver, from the
+driver's wallet, at ride acceptance (§18, already implemented). The
+Payment domain's actual remaining scope, if it is built at all, is
+narrower: driver wallet-recharge payment-gateway integration only (a
+separate flow — see §16/Wallet Domain, api-contracts.md §35).
 
-Customer online payments
+Owns (as originally written — superseded except where noted):
 
-Payment intents
+Customer online payments — superseded, does not exist
 
-Payment gateway integration
+Payment intents — superseded, does not exist (for the ride fare)
 
-Payment status
+Payment gateway integration — narrows to wallet-recharge gateway
+integration only
 
-Payment settlement
+Payment status — narrows to wallet-recharge payment status only
 
-Payment reconciliation
+Payment settlement — superseded for the ride fare (already resolved via
+the wallet debit at acceptance, §18); N/A for recharge (a recharge is a
+direct credit, not a settlement)
 
-Refunds
+Payment reconciliation — narrows to wallet-recharge gateway
+reconciliation only
+
+Refunds — superseded for the customer (nothing is ever collected from
+them to refund); the driver-side platform-fee reversal on cancellation
+is a Wallet domain concern already resolved separately (§19,
+`FEE_REVERSAL`)
 
 The Payment domain does not directly modify the Wallet database.
 
@@ -532,6 +569,16 @@ Event bus
 
 Apache Kafka 3.6+
 
+Mobile app (Customer + Driver, unified — ADR-0027, 2026-08-26; was two
+separate "Driver app"/"Customer app" rows below, both already Flutter,
+now consolidated into one `apps/mobile/` project with role selection at
+login)
+
+Flutter (ADR-0001 for the framework choice; ADR-0027 for the
+single-app-two-roles consolidation)
+
+As originally written (superseded):
+
 Driver app
 
 Flutter
@@ -564,7 +611,8 @@ Cloud
 
 DigitalOcean Kubernetes
 
-Payment gateway
+Payment gateway (narrowed — ADR-0025, 2026-08-25: only for driver
+wallet recharge; no customer-facing ride-fare gateway is needed)
 
 TBD
 
@@ -702,6 +750,14 @@ CREATE TABLE vehicle_documents (
 Driver identity documents use a separate driver-document model.
 
 11. Ride Schema
+
+Superseded for schema purposes by database-design.md §9.1's
+schema-qualified `ride.rides` (see ADR-0010 §7) — that table uses
+`original_pickup`/`current_pickup`/`original_destination`/
+`current_destination`/`active_fare_quote_id` and matches the naming
+convention every other table in this repository already uses
+(`driver.drivers`, `vehicle.vehicles`, etc.). The table below is kept
+for historical context only; do not implement against it.
 
 CREATE TABLE rides (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -972,6 +1028,24 @@ Cancellation reason qualifies.
 
 20. Customer Payment Architecture
 
+SUPERSEDED (ADR-0025, 2026-08-25 — approved P2P Payment Model): the
+gateway/settlement architecture below is not implemented anywhere in
+this codebase and should not be built as documented — VISTAAR does not
+collect the ride fare from the customer, online or offline. The
+corrected architecture is simply:
+
+Customer
+ ↓
+Driver (direct payment — cash or UPI, BR-035)
+
+with the platform fee already collected separately, from the driver's
+wallet, during ride acceptance (§18) — before the ride happens, and
+with no customer-facing step at all. This reverts, once again, to a
+P2P-style ride-fare architecture — see ADR-0025 §2 for the full history
+of this back-and-forth between models.
+
+As originally written (superseded):
+
 The old P2P-only payment architecture is replaced.
 
 VISTAAR supports:
@@ -1009,6 +1083,13 @@ VISTAAR wallet debit
 
 21. Payment Tables
 
+SUPERSEDED (ADR-0025, 2026-08-25): modeled customer-initiated ride-fare
+payments (`customer_id NOT NULL`) — not applicable under the approved
+model. Not implemented anywhere in this codebase; see
+database-design.md §20 for the same reconciliation against the
+equivalent, more detailed `payment.payments`/`payment.allocations`
+schema-qualified tables.
+
 CREATE TABLE payments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     ride_id UUID REFERENCES rides(id),
@@ -1036,12 +1117,15 @@ CREATE TABLE payment_allocations (
 
 22. Offline Cash Confirmation
 
-The driver app sends:
+CORRECTED (ADR-0025, 2026-08-25): if a driver fare-received confirmation
+is ever built, `expected_amount` is the ride fare only, and there is no
+settlement/liability step — the platform fee was already collected from
+the driver's wallet at acceptance:
 
 {
   "ride_id": "...",
-  "expected_amount": 230.00,
-  "confirmed_amount": 230.00
+  "expected_amount": 200.00,
+  "confirmed_amount": 200.00
 }
 
 The server must verify:
@@ -1055,12 +1139,35 @@ Reject confirmation
 If true:
 
 Payment → CONFIRMED
+
+As originally written (superseded — the last two steps modeled a
+VISTAAR settlement that no longer applies):
+
+The driver app sends:
+
+{
+  "ride_id": "...",
+  "expected_amount": 230.00,
+  "confirmed_amount": 230.00
+}
+
+If true:
+
+Payment → CONFIRMED
 Create cash settlement
 Create VISTAAR settlement liability
 
 23. Cash Settlement
 
-For:
+SUPERSEDED (ADR-0025, 2026-08-25): this entire section modeled VISTAAR
+recovering its own charge from cash the driver collected on VISTAAR's
+behalf. That scenario does not exist under the approved model — the
+platform fee is always collected from the driver's wallet at
+acceptance, before the ride happens, never bundled into what the
+customer pays. There is no `DEBIT_CASH_SETTLEMENT`/`OUTSTANDING_
+SETTLEMENT` concept to build.
+
+For (as originally written):
 
 Ride fare = ₹200
 VISTAAR charge = ₹30
@@ -1122,6 +1229,35 @@ No new quote becomes payable without the required confirmation.
 
 26. Pickup Change Architecture
 
+Implementation status: simplified by ADR-0056 (owner decision,
+2026-08-31) — see below; original design (ADR-0033, 2026-08-25) kept
+as historical record. §27 (Destination Change Architecture) is
+unaffected by ADR-0056 and remains IMPLEMENTED (ADR-0033 Decision 9,
+2026-08-25).
+
+Current architecture (ADR-0056):
+
+Calculate distance from the ride's current confirmed pickup
+to the new pickup
+
+If:
+
+distance <= 100m
+
+Applied immediately. No charge, no driver decision.
+
+If:
+
+distance > 100m
+
+Rejected outright (PICKUP_CHANGE_TOO_FAR). No charge, no driver
+decision, no rematch — the ride is left completely unchanged. The
+customer cancels this ride (existing Customer Cancellation rules apply
+normally) and books a new one if they need a pickup this far away.
+
+As originally implemented (ADR-0033, 2026-08-25 — superseded by
+ADR-0056):
+
 When pickup changes:
 
 Calculate distance from driver's relevant location
@@ -1166,6 +1302,11 @@ No strike
 Matching resumes near new pickup
 
 27. Destination Change Architecture
+
+Implementation status: IMPLEMENTED (ADR-0033 Decision 9, 2026-08-25).
+"Current location" (Case C) has no live per-ride GPS tracking anywhere
+in this codebase — `ride.current_pickup` (the confirmed arrival point)
+is used as the documented interpretation; see the ADR.
 
 Case A — Within original route
 
@@ -1502,6 +1643,15 @@ Arbitrary driver return fees are prohibited.
 
 46. Notification Architecture
 
+Implementation status: PARTIALLY IMPLEMENTED (ADR-0034, 2026-08-25).
+`NotificationService.send()` is composed synchronously at the router
+layer immediately after the triggering write commits — not a Kafka
+consumer (none exists anywhere in this codebase yet, Phase 18). Only
+RideAccepted/DriverArrived (of the full list below) are actually wired;
+the rest are documented, not yet composed — the same "no consumer, still
+published" treatment this codebase gives every other event without a
+real subscriber.
+
 Domain services emit events.
 
 Notification service consumes:
@@ -1652,9 +1802,11 @@ Platform fee deduction
 
 Fee reversal
 
-Online payment
-
-Cash confirmation
+Driver fare-received confirmation (renamed from "Cash confirmation" —
+ADR-0025, 2026-08-25: a pure fare-received record, no settlement
+side-effect. The former "Online payment" line is removed — it described
+the now-superseded customer ride-fare gateway; wallet recharge, already
+listed above, is the only remaining online-payment surface)
 
 Promotion usage
 
@@ -1915,6 +2067,18 @@ Customer confirmation is required where specified by business rules.
 
 59. Driver Cash Confirmation UI
 
+CORRECTED (ADR-0025, 2026-08-25): the VISTAAR charge is never part of
+what the customer pays — it was already collected from the driver's
+wallet at ride acceptance.
+
+Ride Fare                  ₹200
+--------------------------------
+Total Cash Required        ₹200
+
+[ CONFIRM ₹200 RECEIVED ]
+
+As originally written (superseded):
+
 Ride Fare                  ₹200
 VISTAAR Charge              ₹30
 --------------------------------
@@ -2021,20 +2185,44 @@ Payment remains pending until verified.
 
 64. Deployment
 
+**Superseded 2026-09-03 (ADR-0063, owner decision) — AWS is now the
+governing deployment target, not DigitalOcean.** The diagram and status
+below are updated to match; ADR-0035 (2026-08-25, DigitalOcean) remains
+in the decision history but is no longer current — see ADR-0063 for
+the full account of the switch, including exactly why it happened
+twice (AWS → DigitalOcean → AWS) and what was learned from the first
+switch about checking every relevant doc before locking in a choice.
+
 Baseline infrastructure:
 
-DigitalOcean Kubernetes
+AWS EKS
 ├── API/BFF
 ├── Core services
 ├── Workers
 ├── Notification service
 └── Support/AI service
 
-Managed PostgreSQL
-Managed Redis
-Kafka
+RDS PostgreSQL (Managed)
+ElastiCache for Redis (Managed)
+Kafka (self-hosted — see ADR-0063 §3 for why not AWS MSK yet)
 
 The initial cluster size remains subject to load testing and cost validation.
+
+Implementation status (ADR-0063, 2026-09-03): the config/script layer
+for this baseline is written — `apps/backend/Dockerfile` (unchanged
+from ADR-0035, still a hardened multi-stage build, provider-agnostic),
+`infrastructure/kubernetes/` (Deployment, Service, HPA, Ingress,
+migration Job — also provider-agnostic Kubernetes YAML, unchanged), and
+the new `infrastructure/terraform/aws/` (EKS, RDS PostgreSQL with
+PostGIS, ElastiCache for Redis, a self-hosted Kafka EC2 instance, an S3
+bucket, an ECR repository) — but none of it has been applied against a
+real AWS account; no credentials for one exist in this environment, and
+this environment additionally has no `terraform` CLI installed at all,
+so even syntax validation (`terraform validate`) has not been run
+against the real provider schema — see that module's own README for
+the full honesty accounting. The superseded
+`infrastructure/terraform/digitalocean/` module is left in place,
+clearly marked deprecated, not deleted — see ADR-0063 §5.
 
 65. Cost Controls
 
@@ -2080,9 +2268,10 @@ Ride acceptance
 
 Wallet deduction
 
-Payment
-
-Cash settlement
+Driver fare-received confirmation (narrowed — ADR-0025, 2026-08-25: no
+VISTAAR payment/settlement to test here; "Payment"/"Cash settlement"
+below described the now-superseded customer-facing gateway/settlement
+flow)
 
 Parking verification
 
@@ -2094,7 +2283,9 @@ Two drivers accepting same ride
 
 Two wallet deductions
 
-Duplicate payment callback
+Duplicate wallet-recharge callback (narrowed — ADR-0025, 2026-08-25: no
+customer ride-fare payment callback exists to duplicate; the recharge
+gateway callback is the one remaining payment-callback surface)
 
 Duplicate referral reward
 
@@ -2104,13 +2295,14 @@ End-to-end
 
 Customer books
 → Matching
-→ Driver accepts
+→ Driver accepts (wallet debit/settlement happens here — ADR-0025,
+  2026-08-25, corrects the "Payment → Settlement" placement below, which
+  wrongly put VISTAAR's settlement after ride completion)
 → Driver arrives
 → OTP
 → Ride
 → Completion
-→ Payment
-→ Settlement
+→ Customer pays driver directly (cash/UPI, no VISTAAR step)
 → Rating
 
 67. Architecture Decision Records Required
@@ -2121,9 +2313,12 @@ Final service boundaries.
 
 Go vs Node ownership.
 
-Payment gateway selection.
+Payment gateway selection (narrowed — ADR-0025, 2026-08-25: only for
+driver wallet recharge).
 
-Payment settlement model.
+Payment settlement model (RESOLVED for the ride fare — ADR-0025:
+settled from the driver's wallet at ride acceptance, ADR-0014; still
+open for wallet-recharge specifically).
 
 Exact fare engine.
 
@@ -2141,17 +2336,34 @@ AI tool permissions.
 
 The following v1.0 assumptions are explicitly superseded.
 
+v3.0 (ADR-0025, 2026-08-25 — approved P2P Payment Model): the two
+ride-payment rows just below this note reverse direction again. v1.0's
+original P2P assumption was right for the ride fare; v2.0's "VISTAAR
+processes online payment" is now itself superseded. Corrected:
+
+Ride payment: P2P-only, VISTAAR does not process the ride fare in any
+form (online or offline). VISTAAR's platform fee is charged separately,
+to the driver's wallet, at ride acceptance (unaffected by this
+reversion — that mechanism was introduced independently of the v1→v2
+payment-collection change and stays exactly as v2.0/ADR-0014 already
+built it). Driver wallet recharge remains a gateway-dependent flow,
+unaffected. See ADR-0025 for the full reasoning, including why the
+"Customer penalty paid directly to driver" → "VISTAAR-owned charge"
+row below is NOT reverted by this note — penalty-charge collection is a
+separate, still-open question ADR-0025 did not resolve.
+
 v1.0
 
 v2.0
 
 P2P-only ride payment
 
-Online + offline
+Online + offline (superseded again — see the v3.0 note above)
 
 VISTAAR does not process ride payment
 
-VISTAAR processes online payment
+VISTAAR processes online payment (superseded again — see the v3.0 note
+above)
 
 Universal ₹10 fee
 
@@ -2171,11 +2383,16 @@ Approved cancellation matrix
 
 Customer penalty paid directly to driver
 
-VISTAAR-owned charge with online/offline settlement
+VISTAAR-owned charge with online/offline settlement (NOT reverted by
+ADR-0025 — penalty-charge collection is a separate, still-open question;
+see BR-055 and ADR-0025's own note above)
 
 P2P-only payment UI
 
-Payment method selection + settlement
+Payment method selection + settlement (superseded again for the ride
+fare — ADR-0025, 2026-08-25: back to P2P-only for the fare itself; a
+method-selection UI may still be meaningful for how the customer intends
+to pay the driver, e.g. UPI vs cash, but there is no "settlement" step)
 
 OCR explicitly V2
 

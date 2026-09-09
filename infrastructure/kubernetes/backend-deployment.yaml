@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vistaar-backend
+  namespace: vistaar
+  labels:
+    app: vistaar-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vistaar-backend
+  template:
+    metadata:
+      labels:
+        app: vistaar-backend
+    spec:
+      # security.md §74 ("Restrict container permissions") — added
+      # security review pass 2, 2026-09-03; did not exist before
+      # (security-review-2026-09-02.md §6's own "not yet covered"
+      # list). Pod-level: enforced independently of the image's own
+      # Dockerfile USER directive, so a future image regression that
+      # accidentally reverts to running as root is still blocked by
+      # Kubernetes itself, not just by the image being well-behaved.
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: backend
+          image: REPLACE_ME_REGISTRY/vistaar-backend:REPLACE_ME_TAG
+          # Container-level, same pass. allowPrivilegeEscalation/
+          # capabilities are safe, well-understood restrictions for a
+          # plain Python/uvicorn API process that binds a single
+          # unprivileged port and touches no host devices.
+          # readOnlyRootFilesystem is deliberately NOT set here —
+          # `apps/backend/src` has no runtime disk-write path (verified:
+          # only one `open()` call anywhere in the app, a read-only
+          # credentials file), but this environment has no reachable
+          # Kubernetes cluster to actually run the image against
+          # (deployment-runbook.md §6's own "not verified" list) and
+          # third-party libraries (boto3/httpx/sentry-sdk/uvicorn
+          # itself) may write to /tmp for reasons this review didn't
+          # exhaustively trace — enable it only after confirming the
+          # pod actually starts cleanly with it on, not by assumption.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: vistaar-backend-config
+            - secretRef:
+                name: vistaar-backend-secret
+          # Mirrors the image's own Docker HEALTHCHECK (ADR-0035) —
+          # Kubernetes doesn't read HEALTHCHECK directives, so the same
+          # /health endpoint is wired here explicitly.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"

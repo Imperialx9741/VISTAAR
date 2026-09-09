@@ -1,0 +1,28 @@
+# Prometheus scrape config for local development (ADR-0053).
+#
+# The backend itself is not a docker-compose service in this dev setup
+# (it runs via `uvicorn` directly on the host, per apps/backend/README.md)
+# — host.docker.internal is Docker Desktop's own documented way for a
+# container to reach a port on the host machine (works on Windows/Mac
+# out of the box; Linux hosts need the extra_hosts entry docker-
+# compose.dev.yml's prometheus service already adds for this reason).
+
+global:
+  scrape_interval: 15s
+
+# Alerting (added 2026-09-03, alongside local Alertmanager + Slack
+# wiring in docker-compose.dev.yml) — same rules as the production
+# ConfigMap (infrastructure/kubernetes/monitoring-configmap.yaml), see
+# prometheus-rules.dev.yml's own header comment.
+rule_files:
+  - /etc/prometheus/rules/prometheus-rules.dev.yml
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  - job_name: vistaar-backend
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8000"]

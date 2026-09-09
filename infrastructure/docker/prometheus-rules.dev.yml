@@ -1,0 +1,32 @@
+# Same alert rules as infrastructure/kubernetes/monitoring-configmap.yaml's
+# vistaar-prometheus-rules ConfigMap (production) — mirrored here, not a
+# different set, so local dev exercises the exact same rules that will
+# fire in production. Added 2026-09-03 alongside local Alertmanager +
+# Slack wiring (docker-compose.dev.yml).
+groups:
+  - name: vistaar-backend
+    rules:
+      - alert: BackendDown
+        expr: up{job="vistaar-backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "VISTAAR backend is not responding to /metrics scrapes"
+          description: "Prometheus has been unable to scrape vistaar-backend for 2 minutes. The service may be down or unreachable."
+      - alert: HighErrorRate
+        expr: sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "VISTAAR backend 5xx rate above 5% for 5 minutes"
+          description: "{{ $value | humanizePercentage }} of requests are returning 5xx. Check the backend's own console output and Sentry."
+      - alert: HighLatencyP99
+        expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "VISTAAR backend p99 latency above 2s for 5 minutes"
+          description: "p99 request latency is {{ $value }}s. Check for slow queries, connection-pool exhaustion, or an unhealthy downstream (Postgres/Redis/Kafka)."

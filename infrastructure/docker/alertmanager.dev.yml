@@ -1,0 +1,26 @@
+# Local dev Alertmanager config template (added 2026-09-03). The
+# `__SLACK_WEBHOOK_URL__` placeholder is substituted at container start
+# with the real value of ALERTMANAGER_SLACK_WEBHOOK_URL (from `.env`,
+# gitignored, never committed) — docker-compose.dev.yml's `alertmanager`
+# service does this via a `sed` command override, since Alertmanager
+# itself has no native environment-variable expansion in its config
+# file (verified directly against the real prom/alertmanager image
+# earlier — it has no `envsubst`, but does have `sed`, which is what
+# the startup command actually uses). This file itself is committed and
+# never contains a real secret — only the placeholder token.
+global:
+  resolve_timeout: 5m
+  slack_api_url: "__SLACK_WEBHOOK_URL__"
+route:
+  receiver: slack-vistaar-alerts
+  group_by: ["alertname"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+receivers:
+  - name: slack-vistaar-alerts
+    slack_configs:
+      - channel: "#vistaar-alerts"
+        send_resolved: true
+        title: '{{ .Status | toUpper }}: {{ .CommonLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ "\n" }}{{ end }}'

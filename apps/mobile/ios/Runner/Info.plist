@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Vistaar Mobile</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>vistaar_mobile</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<!-- Location permission (owner decision, 2026-08-29 — see
+	     docs/16-mobile/mobile-app-implementation-plan.md §6.1). Requested
+	     right after role selection, "when in use" only. Background
+	     location ("Always") is deliberately NOT requested here — Apple's
+	     own App Store review guidelines penalize asking for it before a
+	     feature that actually needs it is reached; it's requested
+	     separately, only once a Sarthi (driver) actually goes online. -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>VISTAAR uses your location to match you with nearby drivers (User) or show you nearby ride requests (Sarthi).</string>
+	<!-- Native Contacts picker for Book for Someone Else (owner-approved
+	     2026-09-01 — see docs/16-mobile/mobile-app-implementation-plan.md
+	     §6.2). Required by iOS for ContactsApi.requestPermission()
+	     (FlutterContacts.permissions.request) even though the native
+	     picker itself (FlutterContacts.native.showPicker) doesn't strictly
+	     need a granted permission on iOS — this app requests it anyway,
+	     the same gated flow Android's picker actually requires, so both
+	     platforms behave identically and testably. Requested contextually,
+	     the first time the User taps "Choose from Contacts" — never at
+	     app launch. -->
+	<key>NSContactsUsageDescription</key>
+	<string>VISTAAR uses your contacts only to fill in the name and phone number when you book a ride for someone else. Nothing is uploaded or synced.</string>
+	<!-- Camera/gallery capture for document and GPS-dispute evidence
+	     uploads (2026-09-04, EvidenceUploadService) — required by
+	     image_picker on iOS even though this app's own iOS build remains
+	     postponed (build order plan §4.1, unaffected by this addition);
+	     added now so a future iOS resume doesn't inherit a missing-key
+	     crash on first camera/gallery use. Requested contextually, the
+	     first time a Camera/Gallery button is tapped — never at launch. -->
+	<key>NSCameraUsageDescription</key>
+	<string>VISTAAR uses your camera to photograph documents (driver license, vehicle registration) and evidence for a GPS verification dispute.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>VISTAAR uses your photo library to attach an existing photo as a document or GPS-dispute evidence.</string>
+	<!-- Push notifications (ADR-0052) — required for background/
+	     terminated-state push delivery (firebaseMessagingBackgroundHandler,
+	     lib/main.dart) to reach this app at all. The notification
+	     permission prompt itself is triggered by
+	     FirebaseMessaging.requestPermission() at runtime
+	     (PushNotificationManager.start()), not by an Info.plist string —
+	     unlike location/contacts, iOS doesn't require one for
+	     notifications.
+	     Still needed beyond this file, outside what a text edit can do:
+	     (1) the "Push Notifications" capability enabled in Xcode's
+	     Signing & Capabilities tab (this auto-generates/updates
+	     Runner.entitlements); (2) an APNs Authentication Key uploaded to
+	     Firebase Console → Project Settings → Cloud Messaging → Apple
+	     app configuration (needs Apple Developer Program access);
+	     (3) GoogleService-Info.plist added to the Xcode project — none
+	     exists in this repo yet (verified: only android/app/
+	     google-services.json was generated so far); regenerate via
+	     `flutterfire configure` or download it from the Firebase Console
+	     on a machine with Xcode, since none of this can be done from a
+	     plain text edit or verified without a real device/Xcode. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneClassName</key>
+					<string>UIWindowScene</string>
+					<key>UISceneConfigurationName</key>
+					<string>flutter</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+					<key>UISceneStoryboardFile</key>
+					<string>Main</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIMainStoryboardFile</key>
+	<string>Main</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+</dict>
+</plist>

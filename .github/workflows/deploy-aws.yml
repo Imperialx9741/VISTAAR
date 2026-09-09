@@ -1,0 +1,125 @@
+name: Deploy Backend to AWS
+
+# ADR-0063 / technical-architecture.md §64. Replaces deploy-do.yml
+# (kept in the repo, deprecated — see that file's own header) after the
+# owner's explicit "AWS only, do not use DigitalOcean" instruction,
+# 2026-09-03. Manual dispatch only, same reasoning deploy-do.yml itself
+# already recorded and this ADR doesn't revisit: turning on automatic
+# deploys is a real operational decision the owner should make
+# explicitly, not one this workflow invents by attaching itself to the
+# `push` trigger ci.yml uses for tests. Run it via the Actions tab's
+# "Run workflow" button.
+#
+# Requires these repository secrets, none of which exist yet:
+#   AWS_ROLE_TO_ASSUME   — an IAM role ARN this workflow assumes via
+#                          OIDC federation (GitHub's own recommended,
+#                          credential-free approach for GitHub Actions
+#                          -> AWS — no long-lived AWS access key stored
+#                          as a repository secret at all). Requires an
+#                          IAM OIDC identity provider for
+#                          token.actions.githubusercontent.com to exist
+#                          in the AWS account first — not provisioned by
+#                          infrastructure/terraform/aws/ (a one-time,
+#                          account-level setup step, not tied to this
+#                          one application).
+#   AWS_REGION           — e.g. ap-south-1, matching
+#                          infrastructure/terraform/aws/variables.tf's
+#                          var.region.
+#   ECR_REPOSITORY_URI    — from `terraform output ecr_repository_url`
+#                          in infrastructure/terraform/aws.
+#   EKS_CLUSTER_NAME       — from `terraform output eks_cluster_name`.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - production
+          - staging
+
+permissions:
+  id-token: write # required for aws-actions/configure-aws-credentials' OIDC role assumption
+  contents: read
+
+jobs:
+  build-and-push:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    outputs:
+      image_tag: ${{ steps.tag.outputs.image_tag }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Compute Image Tag
+        id: tag
+        run: echo "image_tag=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Image
+        working-directory: apps/backend
+        run: |
+          docker build \
+            -t "${{ secrets.ECR_REPOSITORY_URI }}:${{ steps.tag.outputs.image_tag }}" \
+            -t "${{ secrets.ECR_REPOSITORY_URI }}:latest" \
+            .
+
+      - name: Push Image
+        run: |
+          docker push "${{ secrets.ECR_REPOSITORY_URI }}:${{ steps.tag.outputs.image_tag }}"
+          docker push "${{ secrets.ECR_REPOSITORY_URI }}:latest"
+
+  migrate-and-deploy:
+    name: Migrate & Deploy
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Update kubeconfig for EKS
+        run: aws eks update-kubeconfig --region "${{ secrets.AWS_REGION }}" --name "${{ secrets.EKS_CLUSTER_NAME }}"
+
+      - name: Render Manifests
+        working-directory: infrastructure/kubernetes
+        run: |
+          IMAGE="${{ secrets.ECR_REPOSITORY_URI }}:${{ needs.build-and-push.outputs.image_tag }}"
+          TAG="${{ needs.build-and-push.outputs.image_tag }}"
+          sed -i "s#REPLACE_ME_REGISTRY/vistaar-backend:REPLACE_ME_TAG#${IMAGE}#g" backend-migrate-job.yaml backend-deployment.yaml celery-worker-deployment.yaml
+          sed -i "s#REPLACE_ME_TAG#${TAG}#g" backend-migrate-job.yaml
+
+      - name: Run Migration Job
+        working-directory: infrastructure/kubernetes
+        run: |
+          kubectl apply -f backend-migrate-job.yaml
+          kubectl wait --for=condition=complete --timeout=180s \
+            "job/vistaar-backend-migrate-${{ needs.build-and-push.outputs.image_tag }}" -n vistaar
+          kubectl delete "job/vistaar-backend-migrate-${{ needs.build-and-push.outputs.image_tag }}" -n vistaar
+
+      - name: Apply Deployment
+        working-directory: infrastructure/kubernetes
+        run: |
+          kubectl apply -f backend-deployment.yaml
+          kubectl rollout status deployment/vistaar-backend -n vistaar --timeout=180s
+          kubectl apply -f celery-worker-deployment.yaml
+          kubectl rollout status deployment/vistaar-celery-worker -n vistaar --timeout=180s

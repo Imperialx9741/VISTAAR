@@ -13,12 +13,55 @@ dependencies = [
     "psycopg2-binary>=2.9.9",
     "redis>=5.0.0",
     "aiokafka>=0.10.0",
+    # [crypto] extra (pulls in `cryptography`) added for ADR-0052 — FCM's
+    # v1 HTTP API needs an RS256-signed JWT to obtain an OAuth2 access
+    # token from a service account; HS256 (used for this app's own
+    # access tokens, identity/security.py) doesn't need it.
+    "pyjwt[crypto]>=2.8.0",
+    "boto3>=1.34.0",
+    # httpx is used at runtime by modules/identity/sms.py (MSG91 SMS
+    # provider HTTP calls), not just by tests — it must ship as a
+    # production dependency, not only in the dev group. (Phase 21,
+    # ADR-0035: discovered via a real `docker run` reproduction that
+    # the production image crashed with ModuleNotFoundError: httpx
+    # while this lived only under [dependency-groups].dev.)
+    "httpx>=0.27.0",
+    # Background Worker Foundation (ADR-0039, 2026-08-26) — owner-
+    # approved. Redis (already provisioned) serves as both broker and
+    # result backend, so this adds no new infrastructure dependency.
+    "celery[redis]>=5.4.0",
+    # Admin MFA (ADR-0051, 2026-08-28) — RFC 6238 TOTP generation/
+    # verification. No external service, no new infrastructure; a
+    # standard authenticator app (Google Authenticator, Authy, etc.)
+    # implements the same RFC on the client side.
+    "pyotp>=2.9.0",
+    # Monitoring (ADR-0053, 2026-08-28). sentry-sdk no-ops with an empty
+    # SENTRY_DSN (its own documented behavior); prometheus-fastapi-
+    # instrumentator needs no credential at all — it just exposes
+    # GET /metrics for a Prometheus instance to scrape.
+    "sentry-sdk[fastapi]>=2.0.0",
+    "prometheus-fastapi-instrumentator>=7.0.0",
+    # CSV Bulk Customer Targeting (ADR-0041 §9, 2026-08-29). FastAPI's
+    # own UploadFile/Form multipart parsing (Starlette) requires this at
+    # runtime — without it, the endpoint 500s the moment a real
+    # multipart/form-data request arrives, even though the code imports
+    # cleanly.
+    "python-multipart>=0.0.9",
+    # Local-dev .env loading (2026-09-08) — every setting in core/config.py
+    # already had a safe localhost/disabled default, so nothing needed this
+    # before; a real SENTRY_DSN is the first setting where the *repo-root*
+    # `.env` value actually needs to reach a plain `uvicorn src.main:app
+    # --reload` run (README §5), which never sourced `.env` on its own.
+    # Docker/Kubernetes are unaffected — they already inject real env vars
+    # directly (`--env-file`, ConfigMap/Secret), and `load_dotenv()`'s
+    # default `override=False` never replaces a value already set in the
+    # environment.
+    "python-dotenv>=1.0.0",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
-    "httpx>=0.27.0",
     "ruff>=0.3.0",
     "mypy>=1.9.0",
 ]

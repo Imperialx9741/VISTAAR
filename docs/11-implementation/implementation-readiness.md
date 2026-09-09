@@ -281,22 +281,36 @@ not be hard-coded or seeded as if approved (see database-design.md §49).
 
 10. Payment Module
 
-Payment owns:
+RECONCILED (ADR-0025, 2026-08-25 — approved P2P Payment Model): "Owns"
+below described collecting the customer's ride fare. VISTAAR never
+collects the ride fare — the customer pays the driver directly, and the
+platform fee is a Wallet Module concern (§11), already resolved (debited
+at ride acceptance). If a Payment module is built at all, its remaining
+scope narrows to driver wallet-recharge gateway integration only.
 
-Payment intent
-Gateway interaction
-Gateway verification
-Webhook processing
-Payment state
-Refunds
-Payment references
-Idempotency
+Payment owns (as originally written — superseded except where the
+narrowed scope applies):
+
+Payment intent — superseded, does not exist for the ride fare
+Gateway interaction — narrows to the wallet-recharge gateway only
+Gateway verification — narrows to the wallet-recharge gateway only
+Webhook processing — narrows to the wallet-recharge gateway only
+Payment state — narrows to wallet-recharge payment state only
+Refunds — superseded for the customer (nothing is ever collected from
+  them to refund); driver-side fee reversal is a Wallet Module concern,
+  already resolved (BR-046-049, `FEE_REVERSAL`)
+Payment references — narrows to wallet-recharge references only
+Idempotency — stays valid generically (applies to whatever gateway
+  interaction remains)
 
 Payment must never trust:
 
 Client payment success
 Client amount
 Client gateway status
+
+(This guidance is unaffected by the narrowed scope — it still applies to
+the wallet-recharge gateway.)
 
 11. Wallet Module
 
@@ -306,7 +320,11 @@ Wallet account
 Wallet ledger
 Credits
 Debits
-Outstanding settlement
+Outstanding settlement (concept superseded — ADR-0025, 2026-08-25: this
+  modeled VISTAAR settling its own charge out of cash the driver
+  collected on its behalf; no longer a scenario that can occur, since
+  the platform fee is always collected from the driver's wallet at ride
+  acceptance, before the ride happens)
 Recharge settlement
 Wallet balance calculation
 
@@ -971,8 +989,9 @@ Expire promotions
 Expire penalties
 Close evidence windows
 Expire offers
-Reconcile payments
-Process outstanding settlements
+Reconcile wallet-recharge payments (narrowed — ADR-0025, 2026-08-25: no
+  ride-fare payment exists to reconcile)
+Process outstanding settlements (concept superseded — ADR-0025; see §11)
 Clean expired temporary data
 
 Running the same job twice must not create duplicate effects.
@@ -1232,12 +1251,17 @@ Before moving to Phase 2:
 
 66. Phase 5 — Definition of Done
 
+Reconciled (ADR-0025, 2026-08-25): "Online payment" and "Outstanding
+settlement" are struck — N/A under the approved P2P Payment Model.
+"Offline payment" is reworded — a driver fare-received confirmation, if
+built, has no settlement component.
+
 [ ] Server fare calculation
-[ ] Online payment
-[ ] Offline payment
+[x] ~~Online payment~~ — N/A, ADR-0025
+[ ] Driver fare-received confirmation (was "Offline payment")
 [ ] Driver confirmation
 [ ] Wallet ledger
-[ ] Outstanding settlement
+[x] ~~Outstanding settlement~~ — N/A, ADR-0025
 [ ] Recharge recovery
 [ ] Penalties
 

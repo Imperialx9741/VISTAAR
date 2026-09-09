@@ -1,0 +1,30 @@
+# Run once, per deploy, BEFORE rolling out a new backend-deployment.yaml
+# image — not as a per-pod initContainer. Alembic has no built-in
+# locking against two concurrent `upgrade head` runs, so running this
+# as a single Job ahead of a multi-replica rollout (rather than once
+# per pod as replicas start) avoids a real race between pods on first
+# deploy. The CI/CD workflow (.github/workflows/deploy-do.yml) applies
+# this, waits for it to complete, deletes it, then applies
+# backend-deployment.yaml with the new image tag.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # kubectl requires a unique Job name per run; the deploy workflow
+  # substitutes the real image tag in for REPLACE_ME_TAG so reruns
+  # against a new image don't collide with `AlreadyExists`.
+  name: vistaar-backend-migrate-REPLACE_ME_TAG
+  namespace: vistaar
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: REPLACE_ME_REGISTRY/vistaar-backend:REPLACE_ME_TAG
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - configMapRef:
+                name: vistaar-backend-config
+            - secretRef:
+                name: vistaar-backend-secret
